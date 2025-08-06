@@ -405,3 +405,334 @@ $$P(accept) = \begin{cases}
 3. **存在约束**：增广拉格朗日或投影方法
 4. **非凸多峰**：CMA-ES或多起点局部搜索
 5. **梯度噪声大**：方差缩减SGD或无梯度方法
+
+## 10.4 逆问题求解
+
+逆问题在物理仿真中无处不在：从观测数据推断系统参数、设计控制策略、识别材料属性。这些问题通常是不适定的（ill-posed），需要正则化技术保证解的稳定性和唯一性。
+
+### 10.4.1 参数识别
+
+参数识别是最基本的逆问题：给定系统响应，推断内在参数。
+
+**问题设定**：
+设系统由参数$\theta$控制，产生观测$y = \mathcal{F}(\theta) + \epsilon$，其中$\mathcal{F}$是前向模型，$\epsilon$是测量噪声。目标是从观测$y_{obs}$估计$\theta$。
+
+**最小二乘框架**：
+$$\min_\theta \|y_{obs} - \mathcal{F}(\theta)\|^2_2$$
+
+对于线性系统$y = A\theta$，解为$\theta = (A^T A)^{-1} A^T y_{obs}$。但物理系统通常高度非线性。
+
+**贝叶斯框架**：
+引入先验$p(\theta)$，通过贝叶斯定理：
+$$p(\theta|y_{obs}) \propto p(y_{obs}|\theta) p(\theta)$$
+
+最大后验估计（MAP）：
+$$\theta_{MAP} = \arg\max_\theta \log p(y_{obs}|\theta) + \log p(\theta)$$
+
+**材料参数识别实例**：
+考虑弹性材料，从位移场推断杨氏模量$E$和泊松比$\nu$：
+1. 施加已知载荷$f$
+2. 测量位移场$u_{obs}$
+3. 最小化：$\mathcal{L}(E, \nu) = \|u_{FEM}(E, \nu) - u_{obs}\|^2 + \alpha(E^2 + \nu^2)$
+
+**多尺度参数场**：
+当参数是空间变化的场$\theta(x)$时，问题维度爆炸。使用降维表示：
+$$\theta(x) = \sum_{i=1}^n c_i \phi_i(x)$$
+
+其中$\phi_i$是基函数（如B样条、径向基函数）。
+
+### 10.4.2 初始条件优化
+
+动力学系统对初始条件极其敏感。初始条件优化在轨迹规划、动画生成中至关重要。
+
+**轨迹匹配问题**：
+给定目标轨迹$x_{target}(t)$，寻找初始条件$(x_0, v_0)$使系统轨迹最接近目标：
+$$\min_{x_0, v_0} \int_0^T \|x(t) - x_{target}(t)\|^2 dt$$
+
+其中$x(t)$满足动力学方程$\ddot{x} = f(x, \dot{x}, t)$。
+
+**打靶法（Shooting Method）**：
+1. 参数化初始条件
+2. 前向积分得到轨迹
+3. 计算目标函数
+4. 使用伴随方法计算梯度
+5. 更新初始条件
+
+**多重打靶法**：
+长时间轨迹对初始条件过于敏感。将时间区间$[0, T]$分割为$[t_i, t_{i+1}]$，在每个节点引入决策变量：
+$$\min_{x_i, v_i} \sum_{i=0}^{N-1} \int_{t_i}^{t_{i+1}} \|x(t) - x_{target}(t)\|^2 dt$$
+
+约束条件：轨迹在节点处连续。
+
+**稀疏性利用**：
+初始条件通常只影响局部区域。使用稀疏表示：
+- **主动集识别**：确定哪些自由度需要优化
+- **分层优化**：先优化粗网格，再细化
+- **局部支撑**：使用紧支撑基函数
+
+### 10.4.3 控制问题
+
+控制问题寻找时变输入$u(t)$使系统达到期望状态。
+
+**最优控制框架**：
+$$\min_{u(t)} \int_0^T L(x(t), u(t), t) dt + \Phi(x(T))$$
+$$\text{s.t.} \quad \dot{x} = f(x, u, t), \quad x(0) = x_0$$
+
+其中$L$是运行成本，$\Phi$是终端成本。
+
+**Pontryagin最大值原理**：
+引入哈密顿函数：
+$$H(x, u, \lambda, t) = L(x, u, t) + \lambda^T f(x, u, t)$$
+
+最优控制满足：
+- 状态方程：$\dot{x} = \partial H/\partial \lambda$
+- 伴随方程：$\dot{\lambda} = -\partial H/\partial x$
+- 最优性条件：$\partial H/\partial u = 0$
+
+**直接法vs间接法**：
+- **间接法**：求解最优性条件（边值问题）
+- **直接法**：离散化控制，转化为NLP问题
+
+**模型预测控制（MPC）**：
+在线求解有限时域优化问题：
+1. 在时刻$t$，求解$[t, t+T_{horizon}]$的最优控制
+2. 执行第一个控制动作
+3. 移动时间窗口，重复
+
+适合处理约束和干扰。
+
+**软体机器人控制实例**：
+控制变量：各驱动器的压力$p_i(t)$
+目标：到达指定位置同时最小化能耗
+$$\min_{p(t)} \|x_{tip}(T) - x_{target}\|^2 + \alpha \int_0^T \|p(t)\|^2 dt$$
+
+挑战：
+- 高度非线性（大变形）
+- 接触约束
+- 驱动器限制
+
+### 10.4.4 正则化技术
+
+逆问题通常不适定，需要正则化保证解的稳定性。
+
+**Tikhonov正则化**：
+$$\min_\theta \|y_{obs} - \mathcal{F}(\theta)\|^2_2 + \alpha \|\Gamma\theta\|^2_2$$
+
+其中$\Gamma$是正则化算子：
+- $\Gamma = I$：参数大小惩罚（L2正则化）
+- $\Gamma = \nabla$：梯度惩罚（平滑性）
+- $\Gamma = \Delta$：拉普拉斯惩罚（更强平滑性）
+
+**参数选择**：
+选择正则化参数$\alpha$的方法：
+1. **L-曲线**：画出$\log\|y_{obs} - \mathcal{F}(\theta)\|$对$\log\|\Gamma\theta\|$，选择拐点
+2. **广义交叉验证（GCV）**：最小化$GCV(\alpha) = \frac{\|y_{obs} - \mathcal{F}(\theta_\alpha)\|^2}{[1 - tr(A_\alpha)/n]^2}$
+3. **Morozov偏差原理**：选择$\alpha$使残差等于噪声水平
+
+**稀疏正则化**：
+L1正则化促进稀疏解：
+$$\min_\theta \|y_{obs} - \mathcal{F}(\theta)\|^2_2 + \alpha \|\theta\|_1$$
+
+物理应用：
+- 损伤定位（损伤稀疏分布）
+- 源项识别（点源）
+- 特征选择（识别关键参数）
+
+**总变差（TV）正则化**：
+保持边缘的同时去噪：
+$$TV(\theta) = \int |\nabla\theta| dx$$
+
+适用于：
+- 分片常数参数（如层状材料）
+- 裂纹检测
+- 相界面识别
+
+**多尺度正则化**：
+不同尺度使用不同正则化强度：
+$$\mathcal{R}(\theta) = \sum_j \alpha_j \|\mathcal{W}_j \theta\|^2$$
+
+其中$\mathcal{W}_j$是小波变换的第$j$层。
+
+**物理约束作为正则化**：
+利用物理知识构造正则项：
+- **守恒律**：$\mathcal{R}_{cons} = \|\nabla \cdot (\rho u)\|^2$（质量守恒）
+- **对称性**：$\mathcal{R}_{sym} = \|\theta(x) - \theta(\mathcal{S}x)\|^2$
+- **单调性**：$\mathcal{R}_{mono} = \sum_i \max(0, -\partial\theta/\partial x_i)^2$
+
+通过合理的正则化，可以将病态逆问题转化为良态问题，得到物理合理且数值稳定的解。
+
+## 10.5 神经网络与物理仿真
+
+深度学习与物理仿真的结合正在创造新的可能性。神经网络可以学习复杂的物理规律、加速计算、处理不确定性，而物理知识可以指导网络设计、提供归纳偏置、保证预测的物理合理性。
+
+### 10.5.1 Physics-Informed Neural Networks
+
+Physics-Informed Neural Networks (PINNs)通过将物理定律嵌入损失函数，实现数据高效的学习。
+
+**基本思想**：
+神经网络$u_\theta(x, t)$近似PDE的解，损失函数包含：
+1. 数据拟合项：$\mathcal{L}_{data} = \frac{1}{N_d}\sum_{i=1}^{N_d} |u_\theta(x_i, t_i) - u_i|^2$
+2. PDE残差项：$\mathcal{L}_{PDE} = \frac{1}{N_f}\sum_{i=1}^{N_f} |\mathcal{N}[u_\theta](x_i, t_i)|^2$
+3. 边界条件项：$\mathcal{L}_{BC} = \frac{1}{N_b}\sum_{i=1}^{N_b} |\mathcal{B}[u_\theta](x_i, t_i) - g_i|^2$
+4. 初始条件项：$\mathcal{L}_{IC} = \frac{1}{N_0}\sum_{i=1}^{N_0} |u_\theta(x_i, 0) - u_0(x_i)|^2$
+
+总损失：$\mathcal{L} = \mathcal{L}_{data} + \lambda_1\mathcal{L}_{PDE} + \lambda_2\mathcal{L}_{BC} + \lambda_3\mathcal{L}_{IC}$
+
+**自动微分计算PDE算子**：
+对于Navier-Stokes方程$\frac{\partial u}{\partial t} + u \cdot \nabla u = -\nabla p + \nu \Delta u$：
+```python
+def navier_stokes_residual(x, t, u_nn, p_nn):
+    u = u_nn(x, t)
+    p = p_nn(x, t)
+    
+    u_t = grad(u, t)
+    u_x = grad(u, x)
+    u_xx = grad(u_x, x)
+    p_x = grad(p, x)
+    
+    residual = u_t + u * u_x + p_x - nu * u_xx
+    return residual
+```
+
+**采样策略**：
+- **均匀采样**：在计算域内均匀分布配点
+- **重要性采样**：在高梯度区域增加采样密度
+- **自适应采样**：基于残差大小动态调整采样点
+- **拉丁超立方采样**：保证采样的空间覆盖性
+
+**网络架构选择**：
+- **全连接网络**：最简单，适合低维问题
+- **修正的网络**：$u_\theta(x,t) = A(x,t) + B(x,t)N_\theta(x,t)$，其中$A$满足边界条件
+- **多尺度网络**：使用傅里叶特征编码高频信息
+- **DeepONet**：学习算子而非单个解
+
+**训练技巧**：
+1. **损失权重调整**：使用梯度统计自适应调整$\lambda_i$
+2. **课程学习**：从简单到复杂逐步增加PDE复杂度
+3. **迁移学习**：在相似问题间迁移知识
+4. **物理量归一化**：确保各项损失在同一量级
+
+### 10.5.2 图神经网络(GNN)
+
+图神经网络自然适合表示粒子系统和网格结构，通过消息传递学习复杂的相互作用。
+
+**图表示**：
+- **节点**：粒子或网格顶点，特征包括位置、速度、材料属性
+- **边**：相互作用对，特征包括相对位置、距离
+- **全局特征**：系统级属性如总能量、外力场
+
+**消息传递机制**：
+节点$i$的更新规则：
+$$m_{ij}^{(k)} = \phi_e(h_i^{(k)}, h_j^{(k)}, e_{ij})$$
+$$m_i^{(k)} = \bigoplus_{j \in \mathcal{N}(i)} m_{ij}^{(k)}$$
+$$h_i^{(k+1)} = \phi_h(h_i^{(k)}, m_i^{(k)})$$
+
+其中$\phi_e$是边函数，$\phi_h$是节点更新函数，$\bigoplus$是聚合操作（如求和、最大值、平均）。
+
+**物理归纳偏置**：
+1. **平移不变性**：使用相对坐标$x_j - x_i$而非绝对坐标
+2. **旋转等变性**：使用SE(3)等变网络层
+3. **排列不变性**：聚合操作对邻居顺序不敏感
+4. **局部性**：只考虑近邻相互作用
+
+**GNS (Graph Network Simulator)架构**：
+```
+编码器：将粒子状态编码为节点特征
+处理器：K步消息传递，学习动力学
+解码器：预测加速度或力
+```
+
+训练目标：预测下一时刻状态或直接预测加速度。
+
+**多尺度图网络**：
+处理不同尺度的相互作用：
+- **层次图**：构建多级图，粗粒度节点聚合细粒度信息
+- **多跳连接**：允许K跳邻居直接通信
+- **注意力机制**：学习不同尺度相互作用的重要性
+
+### 10.5.3 神经常微分方程
+
+神经常微分方程（Neural ODEs）将连续动力学与深度学习结合，提供了新的建模范式。
+
+**基本形式**：
+$$\frac{dh}{dt} = f_\theta(h(t), t)$$
+
+其中$f_\theta$是神经网络参数化的向量场。
+
+**前向传播**：
+使用ODE求解器（如Runge-Kutta）：
+```python
+def neural_ode_forward(h0, t0, t1, f_theta):
+    # 使用自适应步长ODE求解器
+    h1 = odeint(f_theta, h0, [t0, t1])[-1]
+    return h1
+```
+
+**反向传播（伴随方法）**：
+定义增广状态$[h(t), \lambda(t), \theta(t)]$，反向求解：
+$$\frac{d\lambda}{dt} = -\lambda^T \frac{\partial f_\theta}{\partial h}$$
+$$\frac{d\mathcal{L}}{d\theta} = -\int_{t_1}^{t_0} \lambda^T \frac{\partial f_\theta}{\partial \theta} dt$$
+
+**优势**：
+1. **内存效率**：不需要存储中间激活值
+2. **自适应计算**：根据问题复杂度调整计算量
+3. **可逆性**：保证双射映射
+4. **连续时间建模**：自然处理不规则采样数据
+
+**增强的Neural ODE**：
+- **Augmented Neural ODE**：增加额外维度防止轨迹交叉
+- **Second-order Neural ODE**：$\ddot{x} = f_\theta(x, \dot{x}, t)$，更适合物理系统
+- **Hamiltonian Neural Networks**：保证能量守恒
+- **Lagrangian Neural Networks**：从拉格朗日量学习动力学
+
+**物理应用实例**：
+1. **分子动力学**：学习原子间相互作用势
+2. **流体动力学**：学习亚网格尺度模型
+3. **天体力学**：长时间稳定的轨道预测
+
+### 10.5.4 混合方法
+
+结合神经网络的灵活性和物理求解器的可靠性，混合方法在实践中表现优异。
+
+**残差学习**：
+神经网络学习物理模型的修正项：
+$$\frac{du}{dt} = f_{physics}(u) + f_{NN}(u; \theta)$$
+
+其中$f_{physics}$是已知的简化模型，$f_{NN}$学习未建模的效应。
+
+**混合架构示例**：
+1. **湍流建模**：RANS方程 + 神经网络湍流闭合
+2. **多尺度模拟**：粗网格求解器 + 神经网络超分辨率
+3. **本构关系**：线弹性 + 神经网络非线性修正
+
+**可微物理层**：
+将物理求解器作为神经网络的一层：
+```python
+class DifferentiablePhysicsLayer(nn.Module):
+    def forward(self, x, params):
+        # 运行物理仿真
+        result = physics_solver(x, params)
+        return result
+    
+    def backward(self, grad_output):
+        # 使用伴随方法计算梯度
+        grad_input, grad_params = adjoint_solver(grad_output)
+        return grad_input, grad_params
+```
+
+**混合训练策略**：
+1. **预训练**：先训练纯神经网络，再微调混合模型
+2. **课程学习**：逐步增加物理复杂度
+3. **多任务学习**：同时学习多个物理量
+4. **对抗训练**：使用判别器确保物理合理性
+
+**不确定性量化**：
+- **贝叶斯神经网络**：输出预测的不确定性
+- **集成方法**：多个模型的预测集成
+- **Dropout不确定性**：测试时使用dropout估计不确定性
+
+**模型选择准则**：
+1. **数据可用性**：数据少用PINN，数据多用纯数据驱动
+2. **物理知识**：知识完备用混合方法，知识缺乏用黑盒方法
+3. **泛化需求**：需要外推用物理约束，插值用神经网络
+4. **计算效率**：在线应用用神经网络，离线分析用传统方法
