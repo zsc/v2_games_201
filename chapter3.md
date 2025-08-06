@@ -4,117 +4,440 @@
 
 ## 3.1 弱形式与拉格朗日有限元入门
 
+有限元方法的核心思想是将连续的偏微分方程问题转化为离散的线性代数问题。这个转化过程的关键是弱形式(weak form)，它不仅降低了对解的光滑性要求，还自然地引入了边界条件的处理方式。
+
 ### 3.1.1 强形式vs弱形式
 
-在物理仿真中，我们经常需要求解偏微分方程(PDE)。以泊松方程为例：
+在物理仿真中，我们经常需要求解偏微分方程(PDE)。以泊松方程为例，它描述了稳态热传导、静电势等物理现象：
 
 **强形式**：
 $$\nabla \cdot \nabla u = f \quad \text{in } \Omega$$
-$$u = g \quad \text{on } \partial\Omega_D$$
-$$\nabla u \cdot n = h \quad \text{on } \partial\Omega_N$$
+$$u = g \quad \text{on } \partial\Omega_D \quad \text{(Dirichlet边界)}$$
+$$\nabla u \cdot n = h \quad \text{on } \partial\Omega_N \quad \text{(Neumann边界)}$$
 
-强形式要求解在每个点都满足微分方程，这对解的光滑性要求很高。
+其中：
+- $\Omega$ 是求解域
+- $\partial\Omega = \partial\Omega_D \cup \partial\Omega_N$ 是边界
+- $n$ 是外法向量
+- $f$ 是源项（如热源密度）
+- $g$ 是已知的边界值（如温度）
+- $h$ 是已知的边界通量（如热流）
 
-**弱形式**：
-对于任意测试函数 $w$ 满足 $w = 0$ 在 $\partial\Omega_D$ 上：
+强形式要求解在每个点都满足微分方程，这意味着：
+1. 解必须二阶可微（$C^2$连续）
+2. 在不连续点（如材料界面）难以处理
+3. 数值离散化不直观
+
+**弱形式推导**：
+引入测试函数（也称权函数）$w \in V$，其中 $V = \{w : w \in H^1(\Omega), w = 0 \text{ on } \partial\Omega_D\}$。
+
+将强形式两边同时乘以测试函数并在域上积分：
 $$\int_\Omega w(\nabla \cdot \nabla u) \, d\Omega = \int_\Omega wf \, d\Omega$$
+
+这就是弱形式的起点。注意到左边包含了$u$的二阶导数，我们将通过分部积分降低导数阶数。
 
 ### 3.1.2 分部积分与散度定理
 
-通过分部积分，我们可以降低对解的光滑性要求：
+分部积分是将强形式转化为弱形式的关键工具。回顾一维的分部积分公式：
+$$\int_a^b u'v \, dx = [uv]_a^b - \int_a^b uv' \, dx$$
 
-$$\int_\Omega w(\nabla \cdot \nabla u) \, d\Omega = -\int_\Omega \nabla w \cdot \nabla u \, d\Omega + \int_{\partial\Omega} w \nabla u \cdot n \, d\Gamma$$
+在多维情况下，我们使用散度定理（也称高斯定理）：
+$$\int_\Omega \nabla \cdot \mathbf{F} \, d\Omega = \int_{\partial\Omega} \mathbf{F} \cdot n \, d\Gamma$$
 
-利用边界条件，弱形式变为：
+**详细推导过程**：
+从 $\int_\Omega w(\nabla \cdot \nabla u) \, d\Omega$ 开始，注意到 $\nabla \cdot \nabla u = \nabla \cdot (\nabla u)$。
+
+使用恒等式：
+$$\nabla \cdot (w\nabla u) = \nabla w \cdot \nabla u + w(\nabla \cdot \nabla u)$$
+
+重排得：
+$$w(\nabla \cdot \nabla u) = \nabla \cdot (w\nabla u) - \nabla w \cdot \nabla u$$
+
+代入积分：
+$$\int_\Omega w(\nabla \cdot \nabla u) \, d\Omega = \int_\Omega \nabla \cdot (w\nabla u) \, d\Omega - \int_\Omega \nabla w \cdot \nabla u \, d\Omega$$
+
+应用散度定理于第一项：
+$$\int_\Omega w(\nabla \cdot \nabla u) \, d\Omega = \int_{\partial\Omega} w \nabla u \cdot n \, d\Gamma - \int_\Omega \nabla w \cdot \nabla u \, d\Omega$$
+
+**处理边界积分**：
+边界积分需要根据边界类型分别处理：
+$$\int_{\partial\Omega} w \nabla u \cdot n \, d\Gamma = \int_{\partial\Omega_D} w \nabla u \cdot n \, d\Gamma + \int_{\partial\Omega_N} w \nabla u \cdot n \, d\Gamma$$
+
+由于测试函数在Dirichlet边界上为零（$w = 0$ on $\partial\Omega_D$），第一项消失。
+在Neumann边界上，我们有 $\nabla u \cdot n = h$，因此：
+
+$$\int_{\partial\Omega} w \nabla u \cdot n \, d\Gamma = \int_{\partial\Omega_N} wh \, d\Gamma$$
+
+**弱形式的最终形式**：
 $$\int_\Omega \nabla w \cdot \nabla u \, d\Omega = \int_\Omega wf \, d\Omega + \int_{\partial\Omega_N} wh \, d\Gamma$$
 
-这就是弱形式的最终形式，注意它只要求一阶导数存在。
+这就是泊松方程的弱形式，也称为变分形式。注意到：
+1. 只需要$u$和$w$的一阶导数（$H^1$空间）
+2. Neumann边界条件自然地出现在弱形式中（自然边界条件）
+3. Dirichlet边界条件通过测试函数空间强制满足（本质边界条件）
 
 ### 3.1.3 Galerkin方法
 
-有限元方法属于Galerkin方法族。基本思想是：
-1. 选择有限维试函数空间 $V_h = \text{span}\{\phi_1, \phi_2, ..., \phi_n\}$
-2. 将解表示为基函数的线性组合：$u_h(x) = \sum_{j=1}^n u_j \phi_j(x)$
-3. 选择测试函数 $w = \phi_i$，得到线性方程组
+Galerkin方法是将无限维函数空间问题转化为有限维线性代数问题的一般框架。有限元方法是Galerkin方法的一个特例，其特点是使用具有局部支撑的基函数。
+
+**Galerkin离散化的步骤**：
+
+1. **构造有限维子空间**：
+   选择有限维试函数空间 $V_h \subset V$：
+   $$V_h = \text{span}\{\phi_1, \phi_2, ..., \phi_n\}$$
+   
+   其中$h$表示网格尺寸，$\phi_i$是基函数（也称形函数）。
+
+2. **解的离散表示**：
+   将近似解$u_h$表示为基函数的线性组合：
+   $$u_h(x) = \sum_{j=1}^n u_j \phi_j(x)$$
+   
+   其中$u_j$是待求的系数（节点值）。
+
+3. **Galerkin投影**：
+   要求残差与所有测试函数正交。选择测试函数 $w_h = \phi_i$（$i = 1, 2, ..., n$），代入弱形式：
+   $$\int_\Omega \nabla \phi_i \cdot \nabla u_h \, d\Omega = \int_\Omega \phi_i f \, d\Omega + \int_{\partial\Omega_N} \phi_i h \, d\Gamma$$
+
+4. **线性方程组**：
+   将$u_h$的表达式代入：
+   $$\sum_{j=1}^n u_j \int_\Omega \nabla \phi_i \cdot \nabla \phi_j \, d\Omega = \int_\Omega \phi_i f \, d\Omega + \int_{\partial\Omega_N} \phi_i h \, d\Gamma$$
+   
+   定义：
+   - 刚度矩阵：$K_{ij} = \int_\Omega \nabla \phi_i \cdot \nabla \phi_j \, d\Omega$
+   - 载荷向量：$f_i = \int_\Omega \phi_i f \, d\Omega + \int_{\partial\Omega_N} \phi_i h \, d\Gamma$
+   
+   得到线性系统：
+   $$\mathbf{K}\mathbf{u} = \mathbf{f}$$
+
+**Galerkin方法的数学性质**：
+- **最佳近似性**：Galerkin解是真解在$V_h$中的最佳近似（在能量范数意义下）
+- **对称性**：如果原问题是自伴的，则刚度矩阵对称
+- **正定性**：对于椭圆型问题，刚度矩阵正定
 
 ### 3.1.4 试函数与测试函数
 
-在有限元中，常用的基函数包括：
-- **线性基函数**：在单元内线性变化，单元边界连续
-- **二次基函数**：允许二次变化，提供更高精度
-- **三次基函数**：用于需要高阶连续性的问题
+有限元方法的一个关键特征是使用具有局部支撑的分片多项式基函数。这些基函数的选择直接影响了方法的精度、稳定性和计算效率。
 
-对于一维线性元，基函数为：
-$$\phi_i(x) = \begin{cases}
-\frac{x - x_{i-1}}{x_i - x_{i-1}} & x_{i-1} \leq x \leq x_i \\
-\frac{x_{i+1} - x}{x_{i+1} - x_i} & x_i \leq x \leq x_{i+1} \\
-0 & \text{otherwise}
-\end{cases}$$
+**基函数的要求**：
+1. **完备性**：能够精确表示常数和线性函数（对于二阶PDE）
+2. **连续性**：满足所需的连续性要求（$C^0$对于二阶PDE）
+3. **局部支撑**：每个基函数只在少数单元上非零
+4. **插值性**：$\phi_i(x_j) = \delta_{ij}$（Kronecker delta）
+
+**一维基函数**：
+
+1. **线性基函数（帽子函数）**：
+   $$\phi_i(x) = \begin{cases}
+   \frac{x - x_{i-1}}{x_i - x_{i-1}} & x_{i-1} \leq x \leq x_i \\
+   \frac{x_{i+1} - x}{x_{i+1} - x_i} & x_i \leq x \leq x_{i+1} \\
+   0 & \text{otherwise}
+   \end{cases}$$
+   
+   性质：
+   - 在节点$x_i$处值为1，在其他节点处为0
+   - 支撑域为$[x_{i-1}, x_{i+1}]$
+   - 导数为分片常数
+
+2. **二次基函数**：
+   需要在单元中点引入额外节点。对于标准单元$[-1, 1]$：
+   $$N_1(\xi) = \frac{\xi(\xi-1)}{2}, \quad N_2(\xi) = 1-\xi^2, \quad N_3(\xi) = \frac{\xi(\xi+1)}{2}$$
+
+3. **Hermite基函数**：
+   同时插值函数值和导数值，用于需要$C^1$连续的问题：
+   $$H_i^0(x) = 1 - 3\xi^2 + 2\xi^3, \quad H_i^1(x) = \xi - 2\xi^2 + \xi^3$$
+   其中$\xi = (x-x_i)/(x_{i+1}-x_i)$。
+
+**二维基函数**：
+
+1. **三角形单元的线性基函数**：
+   使用重心坐标$(L_1, L_2, L_3)$：
+   $$\phi_i = L_i, \quad i = 1, 2, 3$$
+   
+   其中$L_i$是第$i$个重心坐标，满足$L_1 + L_2 + L_3 = 1$。
+
+2. **四边形单元的双线性基函数**：
+   在参考单元$[-1,1]^2$上：
+   $$N_i(\xi, \eta) = \frac{1}{4}(1 + \xi_i\xi)(1 + \eta_i\eta)$$
+   
+   其中$(\xi_i, \eta_i)$是角点坐标。
+
+**p型与h型细化**：
+- **h型细化**：减小单元尺寸$h$，保持多项式阶数$p$固定
+- **p型细化**：增加多项式阶数$p$，保持网格固定
+- **hp型细化**：同时调整$h$和$p$，达到指数收敛率
+
+**基函数的数值性质**：
+- **条件数**：高阶基函数可能导致刚度矩阵条件数增大
+- **稀疏性**：局部支撑保证刚度矩阵稀疏
+- **正交性**：某些基函数（如Legendre多项式）具有正交性，改善数值性质
 
 ## 3.2 变形与弹性基础
 
+连续介质力学是有限元仿真的理论基础。本节将介绍描述材料变形的基本概念，包括变形梯度、应变度量和应力张量，以及它们之间的关系。这些概念对于理解和实现非线性有限元至关重要。
+
 ### 3.2.1 变形梯度张量F
 
-变形梯度张量是有限元分析的核心概念：
+变形梯度张量$\mathbf{F}$是描述材料局部变形的最基本量，它建立了参考构型和当前构型之间的联系。
 
-$$\mathbf{F} = \frac{\partial \mathbf{x}}{\partial \mathbf{X}} = \mathbf{I} + \frac{\partial \mathbf{u}}{\partial \mathbf{X}}$$
+**定义与几何意义**：
+考虑一个连续体从参考构型（初始/未变形状态）到当前构型（变形后状态）的映射：
+$$\mathbf{x} = \boldsymbol{\chi}(\mathbf{X}, t)$$
 
 其中：
-- $\mathbf{X}$：参考构型（未变形）坐标
-- $\mathbf{x}$：当前构型（变形后）坐标
-- $\mathbf{u} = \mathbf{x} - \mathbf{X}$：位移场
+- $\mathbf{X} \in \Omega_0$：参考构型中的材料点位置
+- $\mathbf{x} \in \Omega$：当前构型中的材料点位置
+- $\boldsymbol{\chi}$：变形映射
+- $t$：时间参数
 
-变形梯度的重要性质：
-- $\det(\mathbf{F}) > 0$：保证不发生穿透
-- $\mathbf{F} = \mathbf{I}$：未变形状态
-- 平移不变性：刚体平移不改变$\mathbf{F}$
+变形梯度定义为：
+$$\mathbf{F} = \frac{\partial \mathbf{x}}{\partial \mathbf{X}} = \frac{\partial \boldsymbol{\chi}}{\partial \mathbf{X}}$$
+
+在指标记号下：
+$$F_{ij} = \frac{\partial x_i}{\partial X_j}$$
+
+**与位移的关系**：
+引入位移场 $\mathbf{u}(\mathbf{X}, t) = \mathbf{x} - \mathbf{X}$，则：
+$$\mathbf{F} = \mathbf{I} + \frac{\partial \mathbf{u}}{\partial \mathbf{X}} = \mathbf{I} + \nabla_0 \mathbf{u}$$
+
+其中$\nabla_0$表示相对于参考坐标的梯度算子。
+
+**物理解释**：
+变形梯度描述了材料线元的变形：
+- 参考构型中的线元：$d\mathbf{X}$
+- 当前构型中的线元：$d\mathbf{x} = \mathbf{F} d\mathbf{X}$
+
+**变形梯度的重要性质**：
+
+1. **可逆性条件**：
+   $$J = \det(\mathbf{F}) > 0$$
+   
+   $J$称为Jacobian或体积比，表示局部体积变化：
+   - $J > 1$：体积膨胀
+   - $J < 1$：体积压缩  
+   - $J = 1$：体积不变（不可压缩）
+   - $J \leq 0$：材料穿透或翻转（非物理）
+
+2. **极分解**：
+   任何可逆的变形梯度可以唯一分解为：
+   $$\mathbf{F} = \mathbf{R}\mathbf{U} = \mathbf{V}\mathbf{R}$$
+   
+   其中：
+   - $\mathbf{R}$：旋转张量（正交张量）
+   - $\mathbf{U}$：右拉伸张量（对称正定）
+   - $\mathbf{V}$：左拉伸张量（对称正定）
+
+3. **客观性（框架不变性）**：
+   在刚体运动下，变形梯度变换为：
+   $$\mathbf{F}^* = \mathbf{Q}\mathbf{F}$$
+   
+   其中$\mathbf{Q}$是旋转张量。这要求本构关系必须满足客观性。
+
+4. **特殊变形模式**：
+   - 刚体平移：$\mathbf{F} = \mathbf{I}$
+   - 刚体旋转：$\mathbf{F} = \mathbf{R}$（正交张量）
+   - 单轴拉伸：$\mathbf{F} = \text{diag}(\lambda, 1/\sqrt{\lambda}, 1/\sqrt{\lambda})$（不可压缩情况）
+   - 简单剪切：$\mathbf{F} = \mathbf{I} + \gamma \mathbf{e}_1 \otimes \mathbf{e}_2$
 
 ### 3.2.2 格林应变与柯西应变
 
-为了描述变形程度，我们定义各种应变度量：
+应变是描述变形程度的无量纲量。由于有限变形下应变的定义不唯一，我们需要了解各种应变度量及其适用场景。
 
-**右柯西-格林张量**：
+**为什么需要应变度量**：
+变形梯度$\mathbf{F}$包含了刚体旋转，不是真正的应变度量。我们需要从$\mathbf{F}$中提取出纯变形信息。
+
+**右柯西-格林变形张量**：
 $$\mathbf{C} = \mathbf{F}^T \mathbf{F}$$
 
-**格林应变张量**：
+性质：
+- 对称张量：$\mathbf{C} = \mathbf{C}^T$
+- 客观性：在刚体旋转下不变
+- 主不变量：$I_1 = \text{tr}(\mathbf{C})$，$I_2 = \frac{1}{2}[(\text{tr}\mathbf{C})^2 - \text{tr}(\mathbf{C}^2)]$，$I_3 = \det(\mathbf{C}) = J^2$
+
+**格林-拉格朗日应变张量**：
 $$\mathbf{E} = \frac{1}{2}(\mathbf{C} - \mathbf{I}) = \frac{1}{2}(\mathbf{F}^T \mathbf{F} - \mathbf{I})$$
 
-**体积比**：
-$$J = \det(\mathbf{F})$$
+展开形式：
+$$\mathbf{E} = \frac{1}{2}(\nabla_0 \mathbf{u} + (\nabla_0 \mathbf{u})^T + (\nabla_0 \mathbf{u})^T \nabla_0 \mathbf{u})$$
 
-- $J > 1$：体积膨胀
-- $J < 1$：体积压缩
-- $J = 1$：体积不变（不可压缩）
+在小变形下（$||\nabla_0 \mathbf{u}|| \ll 1$），忽略二次项：
+$$\mathbf{E} \approx \boldsymbol{\epsilon} = \frac{1}{2}(\nabla_0 \mathbf{u} + (\nabla_0 \mathbf{u})^T)$$
+
+这就是工程应变（无穷小应变）。
+
+**其他常用应变度量**：
+
+1. **左柯西-格林变形张量**：
+   $$\mathbf{B} = \mathbf{F}\mathbf{F}^T$$
+   
+   在当前构型中度量变形。
+
+2. **Hencky应变（对数应变）**：
+   $$\mathbf{E}_H = \frac{1}{2}\ln(\mathbf{C}) = \ln(\mathbf{U})$$
+   
+   其中$\mathbf{U}$来自极分解$\mathbf{F} = \mathbf{R}\mathbf{U}$。
+   
+   优点：
+   - 对于单轴拉伸，$E_H = \ln(\lambda)$，具有可加性
+   - 压缩和拉伸对称：$E_H(-\lambda) = -E_H(\lambda)$
+
+3. **Almansi应变**：
+   $$\mathbf{e} = \frac{1}{2}(\mathbf{I} - \mathbf{B}^{-1})$$
+   
+   在当前构型中定义的应变度量。
+
+**主拉伸与主方向**：
+对$\mathbf{C}$进行特征值分解：
+$$\mathbf{C} = \sum_{i=1}^3 \lambda_i^2 \mathbf{N}_i \otimes \mathbf{N}_i$$
+
+其中：
+- $\lambda_i$：主拉伸比（$\mathbf{F}$的奇异值）
+- $\mathbf{N}_i$：拉格朗日主方向
+
+**体积与等容变形分解**：
+将变形梯度分解为体积和等容部分：
+$$\mathbf{F} = J^{1/3}\bar{\mathbf{F}}$$
+
+其中$\bar{\mathbf{F}} = J^{-1/3}\mathbf{F}$是等容变形梯度，满足$\det(\bar{\mathbf{F}}) = 1$。
+
+相应的等容右柯西-格林张量：
+$$\bar{\mathbf{C}} = \bar{\mathbf{F}}^T\bar{\mathbf{F}} = J^{-2/3}\mathbf{C}$$
 
 ### 3.2.3 应力张量
 
-应力描述了材料内部的力分布：
+应力描述了材料内部的力分布。在有限变形下，有多种应力度量，每种都有其物理意义和应用场景。
 
-**第一Piola-Kirchhoff应力**（PK1）：
-$$\mathbf{P} = \frac{\partial \psi}{\partial \mathbf{F}}$$
+**应力的物理定义**：
+考虑材料内部一个面元，其法向量为$\mathbf{n}$，作用在该面元上的力为$\mathbf{t}$（牵引力），则应力张量定义了它们之间的关系。
 
-其中$\psi$是应变能密度函数。
+**柯西应力张量（真实应力）**：
+$$\mathbf{t} = \boldsymbol{\sigma} \mathbf{n}$$
 
-**柯西应力**（真实应力）：
+其中$\mathbf{t}$和$\mathbf{n}$都在当前构型中定义。柯西应力的物理意义：
+- $\sigma_{ij}$：作用在法向为$\mathbf{e}_j$的面上，方向为$\mathbf{e}_i$的应力分量
+- 对称张量：$\boldsymbol{\sigma} = \boldsymbol{\sigma}^T$（角动量守恒）
+- 主应力：$\boldsymbol{\sigma}$的特征值
+
+**第一Piola-Kirchhoff应力（PK1，名义应力）**：
+将当前构型的力与参考构型的面积关联：
+$$\mathbf{t}_0 = \mathbf{P} \mathbf{N}$$
+
+其中$\mathbf{N}$是参考构型中的法向量。
+
+与柯西应力的关系（Piola变换）：
+$$\mathbf{P} = J \boldsymbol{\sigma} \mathbf{F}^{-T}$$
+
+或反过来：
 $$\boldsymbol{\sigma} = \frac{1}{J} \mathbf{P} \mathbf{F}^T$$
 
-**第二Piola-Kirchhoff应力**（PK2）：
-$$\mathbf{S} = \mathbf{F}^{-1} \mathbf{P} = 2\frac{\partial \psi}{\partial \mathbf{C}}$$
+性质：
+- 非对称张量（一般情况下）
+- 功共轭于变形梯度：$\dot{W} = \mathbf{P} : \dot{\mathbf{F}}$
+- 从应变能导出：$\mathbf{P} = \frac{\partial \psi}{\partial \mathbf{F}}$
+
+**第二Piola-Kirchhoff应力（PK2）**：
+完全在参考构型中定义的对称应力度量：
+$$\mathbf{S} = \mathbf{F}^{-1} \mathbf{P} = J \mathbf{F}^{-1} \boldsymbol{\sigma} \mathbf{F}^{-T}$$
+
+性质：
+- 对称张量：$\mathbf{S} = \mathbf{S}^T$
+- 功共轭于格林应变：$\dot{W} = \mathbf{S} : \dot{\mathbf{E}}$
+- 从应变能导出：$\mathbf{S} = 2\frac{\partial \psi}{\partial \mathbf{C}} = \frac{\partial \psi}{\partial \mathbf{E}}$
+
+**Kirchhoff应力**：
+$$\boldsymbol{\tau} = J \boldsymbol{\sigma}$$
+
+在不可压缩材料中特别有用，因为$J = 1$时$\boldsymbol{\tau} = \boldsymbol{\sigma}$。
+
+**应力张量之间的转换关系总结**：
+$$\begin{aligned}
+\boldsymbol{\sigma} &= \frac{1}{J} \mathbf{P} \mathbf{F}^T = \frac{1}{J} \mathbf{F} \mathbf{S} \mathbf{F}^T \\
+\mathbf{P} &= J \boldsymbol{\sigma} \mathbf{F}^{-T} = \mathbf{F} \mathbf{S} \\
+\mathbf{S} &= J \mathbf{F}^{-1} \boldsymbol{\sigma} \mathbf{F}^{-T} = \mathbf{F}^{-1} \mathbf{P}
+\end{aligned}$$
+
+**应力功率与共轭对**：
+不同的应力-应变对计算的功率相同：
+$$\dot{W} = \boldsymbol{\sigma} : \mathbf{D} = \mathbf{P} : \dot{\mathbf{F}} = \mathbf{S} : \dot{\mathbf{E}} = \frac{1}{2}\mathbf{S} : \dot{\mathbf{C}}$$
+
+其中$\mathbf{D} = \frac{1}{2}(\mathbf{L} + \mathbf{L}^T)$是变形率张量，$\mathbf{L} = \dot{\mathbf{F}}\mathbf{F}^{-1}$是速度梯度。
 
 ### 3.2.4 本构关系与材料参数
 
-线弹性材料的本构关系由两个独立参数描述：
+本构关系描述了应力和应变之间的关系，是材料模型的核心。不同的材料需要不同的本构模型，从简单的线弹性到复杂的粘弹塑性。
 
-**杨氏模量E**：描述材料的刚度
-**泊松比ν**：描述横向收缩与纵向拉伸的比值，$\nu \in [0, 0.5)$
+**线弹性本构关系**：
+对于各向同性线弹性材料，在小应变下：
+$$\boldsymbol{\sigma} = \mathbf{C} : \boldsymbol{\epsilon}$$
 
-**Lamé参数**：
-$$\lambda = \frac{E\nu}{(1+\nu)(1-2\nu)}$$
-$$\mu = \frac{E}{2(1+\nu)}$$
+其中$\mathbf{C}$是四阶弹性张量。对于各向同性材料：
+$$\sigma_{ij} = \lambda \epsilon_{kk} \delta_{ij} + 2\mu \epsilon_{ij}$$
 
-**体积模量和剪切模量**：
-$$K = \frac{E}{3(1-2\nu)} = \lambda + \frac{2\mu}{3}$$
-$$G = \mu = \frac{E}{2(1+\nu)}$$
+或用矩阵形式（Voigt记号）：
+$$\begin{bmatrix}
+\sigma_{11} \\ \sigma_{22} \\ \sigma_{33} \\ \sigma_{23} \\ \sigma_{13} \\ \sigma_{12}
+\end{bmatrix} = \begin{bmatrix}
+\lambda + 2\mu & \lambda & \lambda & 0 & 0 & 0 \\
+\lambda & \lambda + 2\mu & \lambda & 0 & 0 & 0 \\
+\lambda & \lambda & \lambda + 2\mu & 0 & 0 & 0 \\
+0 & 0 & 0 & \mu & 0 & 0 \\
+0 & 0 & 0 & 0 & \mu & 0 \\
+0 & 0 & 0 & 0 & 0 & \mu
+\end{bmatrix} \begin{bmatrix}
+\epsilon_{11} \\ \epsilon_{22} \\ \epsilon_{33} \\ 2\epsilon_{23} \\ 2\epsilon_{13} \\ 2\epsilon_{12}
+\end{bmatrix}$$
+
+**材料参数及其物理意义**：
+
+1. **杨氏模量（Young's modulus）E**：
+   - 定义：单轴拉伸时应力与应变的比值
+   - 物理意义：材料的刚度
+   - 单位：Pa（帕斯卡）
+   - 典型值：钢材 200 GPa，橡胶 0.01-0.1 GPa
+
+2. **泊松比（Poisson's ratio）ν**：
+   - 定义：横向应变与纵向应变的负比值
+   - 物理意义：材料的体积变化倾向
+   - 范围：$\nu \in [0, 0.5)$（热力学稳定性要求）
+   - 特殊值：
+     - $\nu = 0$：软木（无横向变形）
+     - $\nu \approx 0.5$：橡胶（近似不可压缩）
+     - $\nu \approx 0.3$：大多数金属
+
+3. **Lamé参数**：
+   $$\lambda = \frac{E\nu}{(1+\nu)(1-2\nu)}, \quad \mu = \frac{E}{2(1+\nu)}$$
+   
+   - $\lambda$：Lamé第一参数（无直接物理意义）
+   - $\mu$：剪切模量，也记作$G$
+
+4. **体积模量（Bulk modulus）K**：
+   $$K = \frac{E}{3(1-2\nu)} = \lambda + \frac{2\mu}{3}$$
+   
+   - 物理意义：抵抗体积变化的能力
+   - 当$\nu \to 0.5$时，$K \to \infty$（不可压缩）
+
+**参数之间的转换关系**：
+给定任意两个独立参数，可以计算其他参数：
+$$\begin{aligned}
+E &= \frac{9KG}{3K + G} = \frac{\mu(3\lambda + 2\mu)}{\lambda + \mu} \\
+\nu &= \frac{3K - 2G}{2(3K + G)} = \frac{\lambda}{2(\lambda + \mu)} \\
+K &= \frac{\lambda + 2\mu}{3} = \frac{E}{3(1-2\nu)} \\
+G &= \mu = \frac{E}{2(1+\nu)} = \frac{3K(1-2\nu)}{2(1+\nu)}
+\end{aligned}$$
+
+**材料稳定性要求**：
+热力学第二定律要求应变能为正定，这导致：
+- $E > 0$（拉伸刚度为正）
+- $G > 0$（剪切刚度为正）
+- $K > 0$（体积刚度为正）
+- $-1 < \nu < 0.5$（实际材料通常$\nu > 0$）
+
+**各向异性材料**：
+对于正交各向异性材料，需要9个独立参数：
+- 3个杨氏模量：$E_1, E_2, E_3$
+- 3个剪切模量：$G_{12}, G_{23}, G_{31}$
+- 3个泊松比：$\nu_{12}, \nu_{23}, \nu_{31}$
+
+对于一般各向异性材料，弹性张量$\mathbf{C}$有21个独立分量。
 
 ## 3.3 超弹性材料模型
 
