@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Untitled</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">高级物理引擎实战教程</a></li><li class=""><a href="./chapter1.html">第一章：导论</a></li><li class=""><a href="./chapter2.html">第二章：拉格朗日视角（1）</a></li><li class=""><a href="./chapter3.html">第三章：拉格朗日视角（2）：有限元仿真</a></li><li class=""><a href="./chapter4.html">第四章：欧拉视角（1）</a></li><li class=""><a href="./chapter5.html">第五章：欧拉视角（2）：线性系统求解器</a></li><li class=""><a href="./chapter6.html">第六章：高级输送格式与等势面方法</a></li><li class=""><a href="./chapter7.html">第七章：混合欧拉-拉格朗日视角（1）</a></li><li class=""><a href="./chapter8.html">第八章：混合欧拉-拉格朗日视角（2）：物质点法</a></li><li class=""><a href="./chapter9.html">第九章：高性能计算</a></li><li class=""><a href="./chapter10.html">第十章：可微编程与机器学习</a></li><li class=""><a href="./chapter8b.html">第八章：多重网格方法</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li><li class="active"><a href="./old.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <p>【第一讲，6月1日】</p>
+<p>导论</p>
+<p>– 基于物理的动画简介</p>
+<p>– Taichi（太极）编程语言简介</p>
+<p>– Taichi的自动并行化</p>
+<p>– Taichi程序的调试技巧</p>
+<p>– Taichi中面向数据的编程（Data-oriented programming, DOP）</p>
+<p>– Taichi中面向对象的编程（Object-oriented programming, OOP）</p>
+<p>– Taichi中的元编程（Metaprogramming, MP）</p>
+<p>– 课程与作业安排</p>
+<p>（开放作业0：编写你自己的任意Taichi程序）</p>
+<p>【第二讲，6月8日】</p>
+<p>拉格朗日视角（1）</p>
+<p>– 弹簧质点系统（Mass-spring systems）：你的第一个物理模拟器</p>
+<p>– 布料模拟</p>
+<p>– 显式与隐式时间积分器（Explicit/implicit time integrators）</p>
+<p>– 光滑粒子流体动力学（Smoothed particle hydrodynamics）与基于位置的流体（Position-based fluids）</p>
+<p>– 体素化（Voxelization）: 从三角网格生成粒子</p>
+<p>– 快速邻居搜索（Neighborhood search）</p>
+<p>– 刚体模拟简介</p>
+<p>【第三讲，6月15日】</p>
+<p>拉格朗日视角（2）</p>
+<p>– 弱形式weak form）与拉格朗日有限元模拟入门</p>
+<p>– 基于六面体网格（hexahedron grid）的拉格朗日有限元模拟</p>
+<p>– 基于四面体网格（tetrahedra mesh）的拉格朗日有限元模拟</p>
+<p>– 边界条件处理</p>
+<p>– 可逆（invertible）有限元法</p>
+<p>– 隐式有限元求解器（Implicit FEM solvers）</p>
+<p>– 拓扑优化（Topology optimization）</p>
+<p>【第四讲，6月22日】</p>
+<p>欧拉视角（1）</p>
+<p>– 稳定流体与半拉格朗日输送（Stable fluids and Semi-Lagrangian advection）</p>
+<p>– Chorin式压力投影（Chorin-Style projection）</p>
+<p>– Staggered网格与零空间（nullspaces）</p>
+<p>– Krylov子空间求解器（Krylov-subspace solvers）</p>
+<p>– 用无矩阵（Matrix-free）Krylov子空间方法求解泊松方程（Poisson equations）</p>
+<p>– 预条件（Preconditioning）</p>
+<p>– 几何与代数多重网格方法（multigrid methods）</p>
+<p>【第五讲，6月29日】</p>
+<p>欧拉视角（2）与大规模物理效果渲染</p>
+<p>– 高级输送格式（Advanced advection schemes）</p>
+<p>– 有符号距离场与等势面（Signed-distance fields, level sets）</p>
+<p>– 用等势面方法实现自由表面（Free-surface）追踪（tracking）</p>
+<p>– 自由表面与高阶边界条件处理</p>
+<p>– 路径追踪（Path tracing）与球面追踪（Sphere tracing）</p>
+<p>– 运动模糊（Motion blur）</p>
+<p>– 行军立方体（Marching cubes）表面重建</p>
+<p>– 数字微分分析器（Digital differential analyzer，DDA）</p>
+<p>– 用数字微分分析器进行光线-粒子求交（DDA ray-particle intersection）</p>
+<p>– 体素渲染（Voxel rendering）</p>
+<p>– 体积渲染（Volumetric rendering）</p>
+<p>（开放作业1：渲染你的模拟结果）</p>
+<p>7月6日，空一周，实现开放作业1</p>
+<p>7月11日，开放作业1截止，点评</p>
+<p>【第六讲，7月13日】</p>
+<p>混合欧拉-拉格朗日视角（1）</p>
+<p>– 开放作业1点评，公布优秀代码</p>
+<p>– 粒子-网格传输（Particle-grid transfers）</p>
+<p>– 粒子元胞法（Particle-in-Cell, PIC）</p>
+<p>– 流体隐粒子（Fluid Implicit Particles, FLIP）</p>
+<p>– 仿射粒子元胞法Affine Particle-in-Cell, APIC）</p>
+<p>– 用FLIP与APIC进行流体模拟</p>
+<p>（开放作业2开始，可以使用开放作业1的代码，自由实现一个物理引擎，并完成渲染）</p>
+<p>【第七讲，7月20日】</p>
+<p>混合欧拉-拉格朗日视角（2）</p>
+<p>– 物质点法（Material Point Method, MPM）基础</p>
+<p>– 本构模型（Constitutive models）</p>
+<p>– 移动最小二乘物质点法（Moving Least Squares MPM, MLS-MPM）</p>
+<p>– 物质点法中的拉格朗日力（Lagrangian forces in MPM）</p>
+<p>– MPM中的数值断裂（numeric fracture）与连续介质伤害力学（Continuum Damage Mechanics, CDM）</p>
+<p>【第八讲，7月27日】</p>
+<p>高性能计算与物理引擎</p>
+<p>– 现代处理器微结构（processor microarchitectures）</p>
+<p>– 内存层级（memory hierarchy）</p>
+<p>– 单线程性能调优</p>
+<p>– 并行编程与性能调优</p>
+<p>– 高性能GPU编程</p>
+<p>– MPM的性能优化</p>
+<p>【第九讲，8月3日】</p>
+<p>物理引擎中的稀疏数据结构与可微编程</p>
+<p>– 稀疏数据结构简介</p>
+<p>– 传统稀疏数据构：OpenVDB</p>
+<p>– 用稀疏数据结构加速物质点法的模拟</p>
+<p>– 稀疏数据结构的调优</p>
+<p>– 可微编程与可微物理引擎</p>
+<p>– 利用可微编程从势能计算受力</p>
+<p>– 利用Checkpointing技巧节约内存</p>
+<p>– 实例：优化软体机器人控制器</p>
+<p>8月10日空一次，大家完善自己的物理引擎（开放作业2）。</p>
+<p>8月15日开放作业2 deadline。</p>
+<p>【第十讲，8月17日】</p>
+<p>总结</p>
+<p>– 课程回顾</p>
+<p>– 引擎项目最终点评、评奖</p>
+<p>– 基于物理的动画中的未解难题</p>
+            </article>
+            
+            <nav class="page-nav"><a href="./CLAUDE.html" class="nav-link prev">← Untitled</a></nav>
+        </main>
+    </div>
+</body>
+</html>

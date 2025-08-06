@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第五章：欧拉视角（2）：线性系统求解器</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">高级物理引擎实战教程</a></li><li class=""><a href="./chapter1.html">第一章：导论</a></li><li class=""><a href="./chapter2.html">第二章：拉格朗日视角（1）</a></li><li class=""><a href="./chapter3.html">第三章：拉格朗日视角（2）：有限元仿真</a></li><li class=""><a href="./chapter4.html">第四章：欧拉视角（1）</a></li><li class="active"><a href="./chapter5.html">第五章：欧拉视角（2）：线性系统求解器</a></li><li class=""><a href="./chapter6.html">第六章：高级输送格式与等势面方法</a></li><li class=""><a href="./chapter7.html">第七章：混合欧拉-拉格朗日视角（1）</a></li><li class=""><a href="./chapter8.html">第八章：混合欧拉-拉格朗日视角（2）：物质点法</a></li><li class=""><a href="./chapter9.html">第九章：高性能计算</a></li><li class=""><a href="./chapter10.html">第十章：可微编程与机器学习</a></li><li class=""><a href="./chapter8b.html">第八章：多重网格方法</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li><li class=""><a href="./old.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <h1 id="2">第五章：欧拉视角（2）：线性系统求解器</h1>
+<p>在欧拉视角的物理仿真中，我们经常需要求解大规模稀疏线性系统，特别是在压力投影步骤中出现的泊松方程。本章将深入探讨这些线性系统的特性以及高效求解它们的各种方法。从基础的迭代法到先进的多重网格方法，我们将系统地学习如何在保证精度的同时实现高性能计算。</p>
+<h2 id="51-nullspaces">5.1 稀疏矩阵与零空间(Nullspaces)</h2>
+<h3 id="511">5.1.1 稀疏矩阵存储格式</h3>
+<p>在物理仿真中，离散化后的线性系统通常具有稀疏性——矩阵中大部分元素为零。例如，二维5点Laplace算子每行最多只有5个非零元素。高效存储这些稀疏矩阵对于节省内存和加速计算至关重要。</p>
+<p><strong>压缩稀疏行格式(CSR)</strong>是最常用的存储格式：</p>
+<ul>
+<li><code>values[]</code>: 存储所有非零元素</li>
+<li><code>col_indices[]</code>: 每个非零元素的列索引</li>
+<li><code>row_ptrs[]</code>: 每行的起始位置在values数组中的索引</li>
+</ul>
+<p>例如，对于矩阵：
+$$A = \begin{bmatrix} 4 &amp; -1 &amp; 0 \\ -1 &amp; 4 &amp; -1 \\ 0 &amp; -1 &amp; 4 \end{bmatrix}$$
+CSR表示为：</p>
+<ul>
+<li><code>values = [4, -1, -1, 4, -1, -1, 4]</code></li>
+<li><code>col_indices = [0, 1, 0, 1, 2, 1, 2]</code></li>
+<li><code>row_ptrs = [0, 2, 5, 7]</code></li>
+</ul>
+<p><strong>坐标格式(COO)</strong>适合构建阶段：</p>
+<ul>
+<li><code>(row[], col[], value[])</code> 三元组表示每个非零元素</li>
+</ul>
+<h3 id="512">5.1.2 兼容性条件</h3>
+<p>对于奇异系统 $Ax = b$，解存在的必要条件是右端项 $b$ 必须垂直于矩阵 $A$ 的零空间。</p>
+<p>考虑纯Neumann边界条件下的泊松方程：
+$$\nabla^2 p = \nabla \cdot u^*$$
+离散化后得到的线性系统具有一维零空间，其基向量为 $\mathbf{1} = [1, 1, ..., 1]^T$。这是因为压力场可以相差一个常数而不影响压力梯度。</p>
+<p>兼容性条件要求：
+$$\mathbf{1}^T b = \sum_i b_i = \sum_i (\nabla \cdot u^*)_i = 0$$
+这在物理上对应于不可压缩条件——流入等于流出。</p>
+<h3 id="513">5.1.3 零空间投影</h3>
+<p>当系统具有非平凡零空间时，解不唯一。我们需要将解投影到零空间的正交补空间中。</p>
+<p>对于压力泊松方程，常用的处理方法包括：</p>
+<ol>
+<li><strong>固定一点压力</strong>：设置 $p_0 = 0$，移除一个自由度</li>
+<li><strong>投影法</strong>：求解后减去平均值 $p = p - \frac{1}{n}\sum_i p_i$</li>
+<li><strong>增广系统</strong>：添加约束 $\sum_i p_i = 0$</li>
+</ol>
+<p>投影操作可以表示为：
+$$P = I - \frac{\mathbf{1}\mathbf{1}^T}{n}$$
+其中 $P$ 是投影矩阵，将向量投影到零空间的正交补。</p>
+<h3 id="514">5.1.4 奇异系统的处理</h3>
+<p>处理奇异系统的实用策略：</p>
+<ol>
+<li>
+<p><strong>正则化</strong>：添加小量 $\epsilon I$ 使矩阵非奇异
+$$(A + \epsilon I)x = b$$</p>
+</li>
+<li>
+<p><strong>最小二乘解</strong>：求解 $\min ||Ax - b||_2$，使用广义逆
+$$x = A^+ b$$</p>
+</li>
+<li>
+<p><strong>兼容性修正</strong>：强制右端项满足兼容性条件
+$$b' = b - \frac{\mathbf{1}^T b}{n}\mathbf{1}$$</p>
+</li>
+<li>
+<p><strong>迭代求解器调整</strong>：
+   - 在CG中使用投影预条件
+   - 在多重网格中特殊处理粗网格零空间</p>
+</li>
+</ol>
+<h2 id="52-krylov">5.2 Krylov子空间求解器</h2>
+<h3 id="521-krylov">5.2.1 Krylov子空间理论</h3>
+<p>Krylov子空间方法是求解大规模稀疏线性系统的主力军。对于系统 $Ax = b$，Krylov子空间定义为：
+$$\mathcal{K}_m(A, r_0) = \text{span}\{r_0, Ar_0, A^2r_0, ..., A^{m-1}r_0\}$$
+其中 $r_0 = b - Ax_0$ 是初始残差。</p>
+<p>核心思想是在逐渐扩大的Krylov子空间中寻找最优近似解：
+$$x_m \in x_0 + \mathcal{K}_m(A, r_0)$$
+这类方法的优势：</p>
+<ul>
+<li>只需要矩阵-向量乘积</li>
+<li>内存需求低（通常是 $O(n)$）</li>
+<li>可以利用矩阵的特殊结构</li>
+</ul>
+<h3 id="522-cg">5.2.2 共轭梯度法(CG)</h3>
+<p>对于对称正定(SPD)矩阵，共轭梯度法是最优选择。算法通过构造一组 $A$-共轭的搜索方向 $\{p_k\}$：
+$$p_i^T A p_j = 0, \quad i \neq j$$
+<strong>CG算法核心步骤</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="err">初始化</span><span class="o">:</span><span class="w"> </span><span class="n">r_0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">Ax_0</span><span class="o">,</span><span class="w"> </span><span class="n">p_0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r_0</span>
+<span class="k">for</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="o">,</span><span class="w"> </span><span class="mi">1</span><span class="o">,</span><span class="w"> </span><span class="mi">2</span><span class="o">,</span><span class="w"> </span><span class="o">...</span><span class="w"> </span><span class="k">do</span>
+<span class="w">    </span><span class="err">α</span><span class="n">_k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">(</span><span class="n">r_k</span><span class="o">^</span><span class="n">T</span><span class="w"> </span><span class="n">r_k</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="o">(</span><span class="n">p_k</span><span class="o">^</span><span class="n">T</span><span class="w"> </span><span class="n">A</span><span class="w"> </span><span class="n">p_k</span><span class="o">)</span><span class="w">     </span><span class="err">#</span><span class="w"> </span><span class="err">步长</span>
+<span class="w">    </span><span class="n">x_</span><span class="o">{</span><span class="n">k</span><span class="o">+</span><span class="mi">1</span><span class="o">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">x_k</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="err">α</span><span class="n">_k</span><span class="w"> </span><span class="n">p_k</span><span class="w">              </span><span class="err">#</span><span class="w"> </span><span class="err">更新解</span>
+<span class="w">    </span><span class="n">r_</span><span class="o">{</span><span class="n">k</span><span class="o">+</span><span class="mi">1</span><span class="o">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r_k</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="err">α</span><span class="n">_k</span><span class="w"> </span><span class="n">A</span><span class="w"> </span><span class="n">p_k</span><span class="w">            </span><span class="err">#</span><span class="w"> </span><span class="err">更新残差</span>
+<span class="w">    </span><span class="err">β</span><span class="n">_k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">(</span><span class="n">r_</span><span class="o">{</span><span class="n">k</span><span class="o">+</span><span class="mi">1</span><span class="o">}^</span><span class="n">T</span><span class="w"> </span><span class="n">r_</span><span class="o">{</span><span class="n">k</span><span class="o">+</span><span class="mi">1</span><span class="o">})</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="o">(</span><span class="n">r_k</span><span class="o">^</span><span class="n">T</span><span class="w"> </span><span class="n">r_k</span><span class="o">)</span><span class="w">  </span><span class="err">#</span><span class="w"> </span><span class="err">共轭系数</span>
+<span class="w">    </span><span class="n">p_</span><span class="o">{</span><span class="n">k</span><span class="o">+</span><span class="mi">1</span><span class="o">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r_</span><span class="o">{</span><span class="n">k</span><span class="o">+</span><span class="mi">1</span><span class="o">}</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="err">β</span><span class="n">_k</span><span class="w"> </span><span class="n">p_k</span><span class="w">          </span><span class="err">#</span><span class="w"> </span><span class="err">新搜索方向</span>
+<span class="n">end</span>
+</code></pre></div>
+
+<p>理论上，CG在 $n$ 步内收敛到精确解（不考虑舍入误差）。实际收敛速度取决于条件数：
+$$||e_k||_A \leq 2\left(\frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1}\right)^k ||e_0||_A$$
+其中 $\kappa = \lambda_{\max}/\lambda_{\min}$ 是条件数。</p>
+<h3 id="523-bicgstab">5.2.3 BiCGSTAB方法</h3>
+<p>对于非对称矩阵，BiCGSTAB（双共轭梯度稳定化）是常用选择。它结合了BiCG的思想和稳定化技术：</p>
+<div class="codehilite"><pre><span></span><code><span class="err">初始化</span><span class="o">:</span><span class="w"> </span><span class="n">r_0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">Ax_0</span><span class="o">,</span><span class="w"> </span><span class="err">选择</span><span class="w"> </span><span class="n">r</span><span class="err">̃</span><span class="n">_0</span><span class="w"> </span><span class="o">(</span><span class="err">通常</span><span class="w"> </span><span class="n">r</span><span class="err">̃</span><span class="n">_0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r_0</span><span class="o">)</span>
+<span class="k">for</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="o">,</span><span class="w"> </span><span class="mi">1</span><span class="o">,</span><span class="w"> </span><span class="mi">2</span><span class="o">,</span><span class="w"> </span><span class="o">...</span><span class="w"> </span><span class="k">do</span>
+<span class="w">    </span><span class="err">ρ</span><span class="n">_k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r</span><span class="err">̃</span><span class="n">_0</span><span class="o">^</span><span class="n">T</span><span class="w"> </span><span class="n">r_k</span>
+<span class="w">    </span><span class="err">β</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">(</span><span class="err">ρ</span><span class="n">_k</span><span class="sr">/ρ_{k-1}) × (α/</span><span class="err">ω</span><span class="n">_</span><span class="o">{</span><span class="n">k</span><span class="o">-</span><span class="mi">1</span><span class="o">})</span>
+<span class="w">    </span><span class="n">p_k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r_k</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="err">β</span><span class="o">(</span><span class="n">p_</span><span class="o">{</span><span class="n">k</span><span class="o">-</span><span class="mi">1</span><span class="o">}</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="err">ω</span><span class="n">_</span><span class="o">{</span><span class="n">k</span><span class="o">-</span><span class="mi">1</span><span class="o">}</span><span class="n">v_</span><span class="o">{</span><span class="n">k</span><span class="o">-</span><span class="mi">1</span><span class="o">})</span>
+<span class="w">    </span><span class="n">v_k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Ap_k</span>
+<span class="w">    </span><span class="err">α</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="err">ρ</span><span class="n">_k</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="o">(</span><span class="n">r</span><span class="err">̃</span><span class="n">_0</span><span class="o">^</span><span class="n">T</span><span class="w"> </span><span class="n">v_k</span><span class="o">)</span>
+<span class="w">    </span><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r_k</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="err">α</span><span class="n">v_k</span>
+<span class="w">    </span><span class="n">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">As</span>
+<span class="w">    </span><span class="err">ω</span><span class="n">_k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">(</span><span class="n">t</span><span class="o">^</span><span class="n">T</span><span class="w"> </span><span class="n">s</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="o">(</span><span class="n">t</span><span class="o">^</span><span class="n">T</span><span class="w"> </span><span class="n">t</span><span class="o">)</span>
+<span class="w">    </span><span class="n">x_</span><span class="o">{</span><span class="n">k</span><span class="o">+</span><span class="mi">1</span><span class="o">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">x_k</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="err">α</span><span class="n">p_k</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="err">ω</span><span class="n">_k</span><span class="w"> </span><span class="n">s</span>
+<span class="w">    </span><span class="n">r_</span><span class="o">{</span><span class="n">k</span><span class="o">+</span><span class="mi">1</span><span class="o">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="err">ω</span><span class="n">_k</span><span class="w"> </span><span class="n">t</span>
+<span class="n">end</span>
+</code></pre></div>
+
+<p>BiCGSTAB的优点是避免了BiCG中的不规则收敛行为，缺点是每步需要两次矩阵-向量乘积。</p>
+<h3 id="524">5.2.4 收敛性分析</h3>
+<p>Krylov方法的收敛性主要受以下因素影响：</p>
+<ol>
+<li><strong>谱分布</strong>：特征值聚集程度比条件数更重要</li>
+<li><strong>右端项</strong>：在特征向量基下的分解影响收敛</li>
+<li><strong>舍入误差</strong>：可能导致正交性损失</li>
+</ol>
+<p><strong>重启策略</strong>：
+对于GMRES等方法，存储需求随迭代次数增长。GMRES(m)每 $m$ 步重启：</p>
+<ul>
+<li>优点：限制内存使用</li>
+<li>缺点：可能减慢收敛甚至停滞</li>
+</ul>
+<p><strong>实用收敛准则</strong>：</p>
+<ul>
+<li>相对残差：$||r_k||/||b|| &lt; \epsilon$</li>
+<li>相对改变：$||x_{k+1} - x_k||/||x_k|| &lt; \epsilon$</li>
+<li>组合准则：同时考虑残差和解的变化</li>
+</ul>
+<h2 id="53-preconditioning">5.3 预条件(Preconditioning)</h2>
+<h3 id="531">5.3.1 预条件的作用</h3>
+<p>预条件是加速Krylov方法收敛的关键技术。基本思想是找到一个容易求逆的矩阵 $M \approx A$，将原系统转换为条件数更好的等价系统。</p>
+<p><strong>左预条件</strong>：
+$$M^{-1}Ax = M^{-1}b$$
+<strong>右预条件</strong>：
+$$AM^{-1}y = b, \quad x = M^{-1}y$$
+<strong>分裂预条件</strong>（对称情况）：
+$$L^{-1}AL^{-T}\hat{x} = L^{-1}b, \quad x = L^{-T}\hat{x}$$
+其中 $M = LL^T$。</p>
+<p>理想的预条件器应该满足：</p>
+<ol>
+<li>$M^{-1}A$ 的条件数远小于 $A$ 的条件数</li>
+<li>$M^{-1}v$ 容易计算</li>
+<li>$M$ 的构造和存储开销合理</li>
+</ol>
+<p>预条件的效果可以通过谱分析理解。如果 $A$ 的特征值分布在 $[\lambda_{\min}, \lambda_{\max}]$，好的预条件器会使 $M^{-1}A$ 的特征值聚集在1附近。</p>
+<h3 id="532-jacobi">5.3.2 Jacobi预条件</h3>
+<p>最简单的预条件是对角预条件（Jacobi预条件）：
+$$M = \text{diag}(A) = \text{diag}(a_{11}, a_{22}, ..., a_{nn})$$
+<strong>优点</strong>：</p>
+<ul>
+<li>构造简单：$O(n)$ 时间和空间</li>
+<li>完全并行：$M^{-1}v$ 的计算无数据依赖</li>
+<li>适合GPU实现</li>
+</ul>
+<p><strong>缺点</strong>：</p>
+<ul>
+<li>改善有限：通常只能将条件数减少常数倍</li>
+<li>对病态问题效果差</li>
+</ul>
+<p><strong>加权Jacobi</strong>：
+$$M = \omega \text{diag}(A)$$
+其中 $\omega \in (0, 1]$ 是松弛因子。对于某些问题，$\omega &lt; 1$ 可以改善稳定性。</p>
+<h3 id="533-cholesky">5.3.3 不完全Cholesky分解</h3>
+<p>对于SPD矩阵，完全Cholesky分解 $A = LL^T$ 提供了完美预条件，但分解过程中的填充(fill-in)使其对大规模稀疏矩阵不实用。</p>
+<p>不完全Cholesky分解(IC)通过限制填充来保持稀疏性：</p>
+<p><strong>IC(0)</strong>：零填充，只在 $A$ 的非零位置计算 $L$</p>
+<div class="codehilite"><pre><span></span><code>for i = 1 to n do
+    L_{ii} = sqrt(A_{ii} - sum_{k&lt;i, L_{ik}≠0} L_{ik}^2)
+    for j &gt; i where A_{ij} ≠ 0 do
+        L_{ji} = (A_{ji} - sum_{k&lt;i, L_{jk}≠0, L_{ik}≠0} L_{jk}L_{ik}) / L_{ii}
+    end
+end
+</code></pre></div>
+
+<p><strong>IC(p)</strong>：允许 $p$ 级填充</p>
+<ul>
+<li>级别定义：$\text{level}(i,j) = \min_{路径} \sum \text{level}(边)$</li>
+<li>只计算 $\text{level}(i,j) \leq p$ 的元素</li>
+</ul>
+<p><strong>阈值IC(τ)</strong>：基于数值大小的填充策略</p>
+<ul>
+<li>如果 $|L_{ij}| &gt; \tau \cdot ||L_{i,:}||$，则保留该元素</li>
+</ul>
+<h3 id="534-choleskymic">5.3.4 修正不完全Cholesky(MIC)</h3>
+<p>标准IC可能不稳定，特别是对于接近奇异的矩阵。修正IC通过保持某些数学性质来改善稳定性。</p>
+<p><strong>MIC(0)</strong>保持行和：
+$$\sum_j L_{ij}L_{jk} = \sum_j A_{jk}$$
+实现方式是将丢弃的填充值累加到对角元：</p>
+<div class="codehilite"><pre><span></span><code>for i = 1 to n do
+    dropped_sum = 0
+    for j &lt; i do
+        if (i,j) not in pattern then
+            dropped_sum += computed_value^2
+        end
+    end
+    L_{ii} = sqrt(A_{ii} + dropped_sum - sum_{k&lt;i} L_{ik}^2)
+end
+</code></pre></div>
+
+<p><strong>AINV预条件</strong>：近似逆预条件
+直接近似 $A^{-1}$ 而不是分解 $A$：</p>
+<ul>
+<li>计算稀疏矩阵 $Z \approx L^{-1}$</li>
+<li>$M^{-1} = Z^TZ \approx A^{-1}$</li>
+</ul>
+<h2 id="54">5.4 多重网格方法</h2>
+<h3 id="541">5.4.1 误差的频率分析</h3>
+<p>多重网格方法的核心洞察是：简单迭代法（如Jacobi、Gauss-Seidel）对误差的不同频率成分有不同的效果。</p>
+<p>考虑一维Poisson方程的误差传播。对于网格间距 $h$，误差可以分解为不同频率的Fourier模式：
+$$e^{(k)} = \sum_{j=1}^{n-1} \alpha_j \sin(j\pi x/L)$$
+<strong>光滑性质</strong>：</p>
+<ul>
+<li>高频误差（$j &gt; n/2$）：被Jacobi/GS快速衰减</li>
+<li>低频误差（$j \leq n/2$）：衰减缓慢</li>
+</ul>
+<p>误差衰减因子：
+$$\mu_j = 1 - \frac{4\sin^2(j\pi h/2)}{4/h^2} = \cos^2(j\pi h/2)$$</p>
+<ul>
+<li>高频模式（$j = n/2$）：$\mu_{n/2} = 0$（一步消除）</li>
+<li>低频模式（$j = 1$）：$\mu_1 \approx 1 - (\pi h)^2/2$（衰减极慢）</li>
+</ul>
+<p><strong>多重网格思想</strong>：
+在粗网格上，原来的低频误差变成高频误差，可以被有效消除。</p>
+<h3 id="542">5.4.2 限制与延拓算子</h3>
+<p>网格间的信息传递通过限制(restriction)和延拓(prolongation)算子实现。</p>
+<p><strong>限制算子</strong> $I_{2h}^h: \Omega_h \to \Omega_{2h}$（细到粗）：</p>
+<ol>
+<li>
+<p><strong>注入(Injection)</strong>：
+$$u_{2h,i} = u_{h,2i}$$</p>
+</li>
+<li>
+<p><strong>全权重(Full weighting)</strong>（一维）：
+$$u_{2h,i} = \frac{1}{4}u_{h,2i-1} + \frac{1}{2}u_{h,2i} + \frac{1}{4}u_{h,2i+1}$$</p>
+</li>
+<li>
+<p><strong>全权重(Full weighting)</strong>（二维）：
+$$u_{2h,i,j} = \frac{1}{16}\begin{bmatrix}1 &amp; 2 &amp; 1\\2 &amp; 4 &amp; 2\\1 &amp; 2 &amp; 1\end{bmatrix} \cdot u_h$$
+<strong>延拓算子</strong> $I_h^{2h}: \Omega_{2h} \to \Omega_h$（粗到细）：</p>
+</li>
+<li>
+<p><strong>线性插值</strong>（一维）：
+$$u_{h,2i} = u_{2h,i}$$
+   $$u_{h,2i+1} = \frac{1}{2}(u_{2h,i} + u_{2h,i+1})$$</p>
+</li>
+<li>
+<p><strong>双线性插值</strong>（二维）：
+   使用双线性基函数，粗网格节点直接复制，其他点插值</p>
+</li>
+</ol>
+<p><strong>Galerkin条件</strong>：
+为保证变分性质，通常选择：
+$$I_{2h}^h = c(I_h^{2h})^T$$</p>
+<h3 id="543-v-cyclew-cycle">5.4.3 V-cycle与W-cycle</h3>
+<p>多重网格通过在不同层级间递归来消除所有频率的误差。</p>
+<p><strong>V-cycle算法</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">function</span><span class="w"> </span><span class="nf">V_cycle</span><span class="p">(</span>A_h, u_h, f_h, level<span class="p">)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">level</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">coarsest</span><span class="w"> </span><span class="n">then</span>
+<span class="w">        </span><span class="n">u_h</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">A_h</span>^<span class="p">{</span><span class="o">-</span><span class="mi">1</span><span class="p">}</span><span class="w"> </span><span class="n">f_h</span><span class="w">  </span><span class="o">//</span><span class="w"> </span>直接求解
+<span class="w">    </span><span class="k">else</span>
+<span class="w">        </span><span class="o">//</span><span class="w"> </span>前光滑
+<span class="w">        </span><span class="n">u_h</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">Smooth</span><span class="p">(</span><span class="n">A_h</span><span class="p">,</span><span class="w"> </span><span class="n">u_h</span><span class="p">,</span><span class="w"> </span><span class="n">f_h</span><span class="p">,</span><span class="w"> </span>ν₁<span class="p">)</span>
+
+<span class="w">        </span><span class="o">//</span><span class="w"> </span>计算残差并限制
+<span class="w">        </span><span class="n">r_h</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">f_h</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">A_h</span><span class="w"> </span><span class="n">u_h</span>
+<span class="w">        </span><span class="n">r_</span><span class="p">{</span>2<span class="n">h</span><span class="p">}</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">I_</span><span class="p">{</span>2<span class="n">h</span><span class="p">}</span>^<span class="n">h</span><span class="w"> </span><span class="n">r_h</span>
+
+<span class="w">        </span><span class="o">//</span><span class="w"> </span>粗网格修正
+<span class="w">        </span><span class="n">e_</span><span class="p">{</span>2<span class="n">h</span><span class="p">}</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">0</span>
+<span class="w">        </span><span class="n">e_</span><span class="p">{</span>2<span class="n">h</span><span class="p">}</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">V_cycle</span><span class="p">(</span><span class="n">A_</span><span class="p">{</span>2<span class="n">h</span><span class="p">},</span><span class="w"> </span><span class="n">e_</span><span class="p">{</span>2<span class="n">h</span><span class="p">},</span><span class="w"> </span><span class="n">r_</span><span class="p">{</span>2<span class="n">h</span><span class="p">},</span><span class="w"> </span><span class="n">level</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="w">        </span><span class="o">//</span><span class="w"> </span>延拓并修正
+<span class="w">        </span><span class="n">u_h</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">u_h</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">I_h</span>^<span class="p">{</span>2<span class="n">h</span><span class="p">}</span><span class="w"> </span><span class="n">e_</span><span class="p">{</span>2<span class="n">h</span><span class="p">}</span>
+
+<span class="w">        </span><span class="o">//</span><span class="w"> </span>后光滑
+<span class="w">        </span><span class="n">u_h</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">Smooth</span><span class="p">(</span><span class="n">A_h</span><span class="p">,</span><span class="w"> </span><span class="n">u_h</span><span class="p">,</span><span class="w"> </span><span class="n">f_h</span><span class="p">,</span><span class="w"> </span>ν₂<span class="p">)</span>
+<span class="w">    </span><span class="k">end</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">u_h</span>
+<span class="k">end</span>
+</code></pre></div>
+
+<p><strong>W-cycle</strong>：在每层递归调用两次</p>
+<div class="codehilite"><pre><span></span><code>e_{2h} = W_cycle(A_{2h}, 0, r_{2h}, level+1)
+e_{2h} = W_cycle(A_{2h}, e_{2h}, r_{2h}, level+1)
+</code></pre></div>
+
+<p><strong>F-cycle</strong>：介于V和W之间的策略</p>
+<p><strong>Full Multigrid (FMG)</strong>：
+使用粗网格解作为细网格初值：</p>
+<ol>
+<li>在最粗网格求解</li>
+<li>延拓到下一层作为初值</li>
+<li>执行V-cycle</li>
+<li>重复直到最细网格</li>
+</ol>
+<h3 id="544">5.4.4 粗网格修正</h3>
+<p>粗网格修正的数学原理基于误差方程：
+$$A_h e_h = r_h$$
+其中 $e_h = u_h^* - u_h$ 是误差，$r_h = f_h - A_h u_h$ 是残差。</p>
+<p><strong>两网格算法分析</strong>：</p>
+<ol>
+<li>光滑后的误差主要是低频成分</li>
+<li>限制到粗网格：$r_{2h} = I_{2h}^h r_h$</li>
+<li>求解粗网格误差方程：$A_{2h} e_{2h} = r_{2h}$</li>
+<li>延拓修正：$u_h^{new} = u_h + I_h^{2h} e_{2h}$</li>
+</ol>
+<p><strong>收敛性分析</strong>：
+两网格收敛因子：
+$$\rho_{TG} = ||(I - I_h^{2h} A_{2h}^{-1} I_{2h}^h A_h) S^{\nu}||$$
+其中 $S$ 是光滑迭代矩阵。典型值：$\rho_{TG} \approx 0.1-0.2$。</p>
+<h2 id="55">5.5 几何多重网格</h2>
+<h3 id="551">5.5.1 网格层次构建</h3>
+<p>几何多重网格需要构建一系列逐渐变粗的网格。对于结构化网格，这个过程相对简单。</p>
+<p><strong>均匀粗化策略</strong>：</p>
+<ul>
+<li>一维：每隔一个点取一个（间距翻倍）</li>
+<li>二维：每个方向都翻倍，4个细网格单元对应1个粗网格单元</li>
+<li>三维：8个细网格单元对应1个粗网格单元</li>
+</ul>
+<p><strong>网格层次示例</strong>（二维）：</p>
+<div class="codehilite"><pre><span></span><code>Level 0 (finest):   64×64   (h = 1/64)
+Level 1:            32×32   (h = 1/32)
+Level 2:            16×16   (h = 1/16)
+Level 3:             8×8    (h = 1/8)
+Level 4 (coarsest):  4×4    (h = 1/4)
+</code></pre></div>
+
+<p><strong>边界处理</strong>：</p>
+<ul>
+<li>Dirichlet边界：粗网格继承细网格边界条件</li>
+<li>Neumann边界：需要特殊处理以保持通量守恒</li>
+</ul>
+<p><strong>非均匀网格</strong>：
+对于自适应网格，粗化策略更复杂：</p>
+<ul>
+<li>聚集(agglomeration)：将相邻细网格单元合并</li>
+<li>确保粗网格的连通性和质量</li>
+</ul>
+<h3 id="552-galerkin">5.5.2 Galerkin粗化</h3>
+<p>Galerkin粗化通过变分原理自动生成粗网格算子：
+$$A_{2h} = I_{2h}^h A_h I_h^{2h}$$
+<strong>优点</strong>：</p>
+<ul>
+<li>保持对称性：如果 $A_h$ 对称且 $I_{2h}^h = (I_h^{2h})^T$，则 $A_{2h}$ 对称</li>
+<li>保持正定性：如果 $A_h$ 正定，则 $A_{2h}$ 正定</li>
+<li>自动处理复杂边界条件</li>
+</ul>
+<p><strong>计算优化</strong>：
+直接矩阵三乘积计算开销大，可以优化：</p>
+<ol>
+<li>对于标准离散化，$A_{2h}$ 的模板可以预先推导</li>
+<li>利用稀疏性，只计算非零元素</li>
+</ol>
+<p><strong>五点Laplace算子的Galerkin粗化</strong>：
+细网格算子：
+$$A_h = \frac{1}{h^2}\begin{bmatrix}
+0 &amp; -1 &amp; 0\\
+-1 &amp; 4 &amp; -1\\
+0 &amp; -1 &amp; 0
+\end{bmatrix}$$
+粗网格算子（全权重限制+双线性延拓）：
+$$A_{2h} = \frac{1}{(2h)^2}\begin{bmatrix}
+0 &amp; -1 &amp; 0\\
+-1 &amp; 4 &amp; -1\\
+0 &amp; -1 &amp; 0
+\end{bmatrix}$$
+注意：粗网格算子保持相同的模板形式！</p>
+<h3 id="553">5.5.3 光滑器选择</h3>
+<p>不同的光滑器对多重网格性能有重要影响。</p>
+<p><strong>点Jacobi</strong>：
+$$u_i^{new} = \frac{1}{a_{ii}}(f_i - \sum_{j \neq i} a_{ij}u_j^{old})$$</p>
+<ul>
+<li>完全并行，适合GPU</li>
+<li>需要欠松弛 $\omega \approx 2/3$ 获得最佳光滑性</li>
+<li>收敛较慢，通常需要更多迭代</li>
+</ul>
+<p><strong>Gauss-Seidel</strong>：
+$$u_i^{new} = \frac{1}{a_{ii}}(f_i - \sum_{j &lt; i} a_{ij}u_j^{new} - \sum_{j &gt; i} a_{ij}u_j^{old})$$</p>
+<ul>
+<li>串行依赖，并行性差</li>
+<li>光滑效果好，收敛快</li>
+<li>前向和后向GS的组合（对称GS）保持对称性</li>
+</ul>
+<p><strong>Red-Black Gauss-Seidel</strong>：
+将网格点按棋盘模式分为红黑两组：</p>
+<ol>
+<li>更新所有红点（并行）</li>
+<li>更新所有黑点（并行）</li>
+</ol>
+<ul>
+<li>保持GS的良好光滑性</li>
+<li>实现并行化</li>
+<li>特别适合规则网格</li>
+</ul>
+<p><strong>线/面松弛</strong>：</p>
+<ul>
+<li><strong>线松弛</strong>：同时求解一条线上的所有未知数</li>
+<li><strong>面松弛</strong>：同时求解一个面上的所有未知数</li>
+<li>适用于各向异性问题（如 $\epsilon u_{xx} + u_{yy} = f$ 当 $\epsilon \ll 1$）</li>
+</ul>
+<h3 id="554">5.5.4 并行多重网格</h3>
+<p>多重网格的并行化面临独特挑战，特别是在粗网格层级。</p>
+<p><strong>并行化策略</strong>：</p>
+<ol>
+<li>
+<p><strong>网格分区</strong>：
+   - 细网格：良好的负载均衡
+   - 粗网格：通信开销增加，计算/通信比下降</p>
+</li>
+<li>
+<p><strong>粗网格并行性退化</strong>：</p>
+</li>
+</ol>
+<div class="codehilite"><pre><span></span><code>Level 0: 1024×1024 / 64 processors = 16384 points/proc
+Level 1: 512×512 / 64 processors = 4096 points/proc
+...
+Level 6: 16×16 / 64 processors = 4 points/proc (!)
+</code></pre></div>
+
+<ol start="3">
+<li><strong>解决方案</strong>：
+   - <strong>聚集(Agglomeration)</strong>：在粗网格上使用更少的处理器
+   - <strong>冗余计算</strong>：每个处理器都计算粗网格问题
+   - <strong>混合方法</strong>：粗网格切换到Krylov方法</li>
+</ol>
+<p><strong>通信优化</strong>：</p>
+<ul>
+<li><strong>重叠计算与通信</strong>：在等待边界数据时计算内部点</li>
+<li><strong>消息合并</strong>：将多个小消息合并为大消息</li>
+<li><strong>持久通信</strong>：对于固定通信模式，使用MPI持久通信</li>
+</ul>
+<p><strong>GPU实现考虑</strong>：</p>
+<ul>
+<li>细网格：高并行度，GPU效率高</li>
+<li>粗网格：并行度低，可能需要CPU处理</li>
+<li>使用统一内存简化数据传输</li>
+</ul>
+<h2 id="56-amg">5.6 代数多重网格(AMG)</h2>
+<h3 id="561">5.6.1 强连接与粗网格选择</h3>
+<p>代数多重网格不依赖几何信息，而是通过分析矩阵系数来构建网格层次。</p>
+<p><strong>强连接定义</strong>：
+节点 $i$ 强连接到节点 $j$ 如果：
+$$|a_{ij}| \geq \theta \max_{k \neq i} |a_{ik}|$$
+典型选择 $\theta = 0.25$ 或 $0.5$。</p>
+<p><strong>强连接的意义</strong>：</p>
+<ul>
+<li>大系数表示变量间的强耦合</li>
+<li>光滑迭代难以消除强连接变量间的误差</li>
+<li>需要在粗网格上同时处理强连接的变量</li>
+</ul>
+<p><strong>C/F分裂算法</strong>（Coarse/Fine splitting）：</p>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">计算每个点的</span><span class="s">&quot;影响度&quot;</span><span class="err">：</span><span class="n">λᵢ</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="err">|{</span><span class="n">j</span><span class="p">:</span><span class="w"> </span><span class="n">j强连接到i</span><span class="err">}|</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">初始化</span><span class="err">：</span><span class="n">所有点标记为未定</span><span class="p">(</span><span class="n">U</span><span class="p">)</span>
+<span class="mf">3.</span><span class="w"> </span><span class="n">while</span><span class="w"> </span><span class="n">存在U点</span><span class="err">：</span>
+<span class="w">   </span><span class="n">a</span><span class="mf">.</span><span class="w"> </span><span class="n">选择λ最大的U点i</span><span class="err">，</span><span class="n">标记为C点</span>
+<span class="w">   </span><span class="n">b</span><span class="mf">.</span><span class="w"> </span><span class="n">将所有强连接到i的U点标记为F点</span>
+<span class="w">   </span><span class="n">c</span><span class="mf">.</span><span class="w"> </span><span class="n">更新受影响点的λ值</span>
+
+<span class="mf">4.</span><span class="w"> </span><span class="n">后处理</span><span class="err">：</span><span class="n">确保每个F点至少强连接到一个C点</span>
+</code></pre></div>
+
+<p><strong>两遍算法</strong>(Second pass)：
+检查每个F点，如果它没有强连接到任何C点，则：</p>
+<ul>
+<li>将其改为C点，或</li>
+<li>将某个强连接的F点改为C点</li>
+</ul>
+<h3 id="562">5.6.2 插值算子构造</h3>
+<p>AMG的核心是构造好的插值(延拓)算子。基本原则是准确插值光滑误差。</p>
+<p><strong>经典插值</strong>：
+对于F点 $i$，其值由强连接的C点插值：
+$$e_i = \sum_{j \in C_i} w_{ij} e_j$$
+其中 $C_i$ 是强连接到 $i$ 的C点集合。</p>
+<p><strong>插值权重计算</strong>：
+基于光滑误差假设 $Ae \approx 0$：
+$$a_{ii}e_i + \sum_{j \in N_i} a_{ij}e_j \approx 0$$
+将邻居分为C点和F点：
+$$e_i = -\frac{1}{a_{ii}} \left( \sum_{j \in C_i} a_{ij}e_j + \sum_{k \in F_i} a_{ik}e_k \right)$$
+对F点的贡献进行近似（如分配到C点），得到插值权重。</p>
+<p><strong>标准插值公式</strong>：
+$$w_{ij} = -\frac{a_{ij} + \sum_{k \in F_i} \frac{a_{ik}a_{kj}}{\sum_{m \in C_i} a_{km}}}{a_{ii} + \sum_{k \in F_i} \frac{a_{ik}a_{ki}}{a_{kk}}}$$</p>
+<h3 id="563-amg">5.6.3 经典AMG与平滑聚合</h3>
+<p><strong>经典AMG特点</strong>：</p>
+<ul>
+<li>基于强连接的C/F分裂</li>
+<li>直接插值构造</li>
+<li>对各向异性问题效果好</li>
+<li>构造复杂度较高</li>
+</ul>
+<p><strong>平滑聚合(SA)AMG</strong>：
+不同于C/F分裂，SA使用聚合策略：</p>
+<ol>
+<li>
+<p><strong>聚合阶段</strong>：
+   - 将强连接的节点聚合成组
+   - 每组形成一个粗网格节点
+   - 初始插值：分片常数</p>
+</li>
+<li>
+<p><strong>平滑阶段</strong>：
+   - 对初始插值应用光滑迭代
+   - $P = S \tilde{P}$，其中 $S$ 是光滑算子
+   - 改善插值质量</p>
+</li>
+</ol>
+<p><strong>聚合算法</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">初始化</span><span class="err">：</span><span class="n">所有点未聚合</span>
+<span class="mf">2.</span><span class="w"> </span><span class="kr">for</span><span class="w"> </span><span class="n">each</span><span class="w"> </span><span class="n">未聚合点</span><span class="w"> </span><span class="n">i</span><span class="err">：</span>
+<span class="w">   </span><span class="kr">if</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="n">有足够的未聚合强连接邻居</span><span class="err">：</span>
+<span class="w">      </span><span class="n">创建新聚合</span><span class="err">，</span><span class="n">包含</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="n">和其强连接邻居</span>
+<span class="w">   </span><span class="n">else</span><span class="err">：</span>
+<span class="w">      </span><span class="n">将</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="n">加入邻近的聚合</span>
+
+<span class="mf">3.</span><span class="w"> </span><span class="n">处理剩余点</span><span class="err">（</span><span class="n">可能需要放松强连接准则</span><span class="err">）</span>
+</code></pre></div>
+
+<h3 id="564-amg">5.6.4 自适应AMG</h3>
+<p>自适应AMG通过测试向量自动改进插值算子。</p>
+<p><strong>基本思想</strong>：
+使用实际问题的近零特征向量（代表光滑误差）来构造插值。</p>
+<p><strong>自适应设置算法</strong>：</p>
+<ol>
+<li>初始设置：使用标准AMG构造</li>
+<li>测试阶段：
+   - 执行多重网格迭代
+   - 收集收敛慢的误差分量</li>
+<li>改进插值：
+   - 将测试向量加入插值的范围
+   - 重新构造网格层次</li>
+</ol>
+<p><strong>Bootstrap AMG</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">从常数向量开始</span><span class="err">：</span><span class="n">v</span><span class="err">⁽</span><span class="n">⁰</span><span class="err">⁾</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1</span>
+<span class="mf">2.</span><span class="w"> </span><span class="kr">for</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="kr">to</span><span class="w"> </span><span class="n">K</span><span class="err">：</span>
+<span class="w">   </span><span class="n">a</span><span class="mf">.</span><span class="w"> </span><span class="n">用当前向量构造AMG层次</span>
+<span class="w">   </span><span class="n">b</span><span class="mf">.</span><span class="w"> </span><span class="n">应用AMG求解</span><span class="err">，</span><span class="n">记录收敛慢的分量</span>
+<span class="w">   </span><span class="n">c</span><span class="mf">.</span><span class="w"> </span><span class="n">更新测试向量集</span><span class="err">：</span><span class="n">V</span><span class="err">⁽</span><span class="n">ᵏ</span><span class="err">⁾</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="err">[</span><span class="n">v</span><span class="err">⁽</span><span class="n">⁰</span><span class="err">⁾</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="err">⁽</span><span class="n">¹</span><span class="err">⁾</span><span class="p">,</span><span class="w"> </span><span class="mf">...</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="err">⁽</span><span class="n">ᵏ</span><span class="err">⁾]</span>
+
+<span class="mf">3.</span><span class="w"> </span><span class="n">使用最终的向量集构造AMG</span>
+</code></pre></div>
+
+<p><strong>优点</strong>：</p>
+<ul>
+<li>自动适应问题特性</li>
+<li>对困难问题效果显著</li>
+<li>可以处理多个近零特征向量</li>
+</ul>
+<p><strong>缺点</strong>：</p>
+<ul>
+<li>设置阶段开销大</li>
+<li>需要存储测试向量</li>
+<li>对问题变化敏感</li>
+</ul>
+<h2 id="57-matrix-free">5.7 无矩阵(Matrix-free)方法</h2>
+<h3 id="571-">5.7.1 矩阵-向量乘积的隐式计算</h3>
+<p>在现代计算架构中，内存带宽往往是性能瓶颈。无矩阵方法通过直接计算矩阵-向量乘积而不存储矩阵来优化性能。</p>
+<p><strong>动机</strong>：</p>
+<ul>
+<li>存储稀疏矩阵需要大量内存</li>
+<li>矩阵元素的读取受内存带宽限制</li>
+<li>重新计算往往比读取更快</li>
+</ul>
+<p><strong>Laplace算子的无矩阵实现</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">laplace_matvec</span><span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">h</span><span class="p">):</span>
+    <span class="c1"># 不存储矩阵，直接计算 Au</span>
+    <span class="n">Au</span> <span class="o">=</span> <span class="n">zeros_like</span><span class="p">(</span><span class="n">u</span><span class="p">)</span>
+    <span class="n">inv_h2</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="n">h</span> <span class="o">*</span> <span class="n">h</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">n</span><span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">n</span><span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+            <span class="n">Au</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">inv_h2</span> <span class="o">*</span> <span class="p">(</span>
+                <span class="mi">4</span><span class="o">*</span><span class="n">u</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">u</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">u</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> 
+
+                         <span class="o">-</span> <span class="n">u</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">u</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span>
+            <span class="p">)</span>
+    <span class="k">return</span> <span class="n">Au</span>
+</code></pre></div>
+
+<p><strong>性能分析</strong>：</p>
+<ul>
+<li>传统方法：读取5个矩阵元素 + 5个向量元素 = 10次内存访问</li>
+<li>无矩阵方法：读取5个向量元素 = 5次内存访问</li>
+<li>算术运算增加但通常"免费"（计算隐藏在内存访问延迟中）</li>
+</ul>
+<h3 id="572">5.7.2 内存带宽优化</h3>
+<p>现代处理器的关键特性：</p>
+<ul>
+<li>计算能力 &gt;&gt; 内存带宽</li>
+<li>FLOP/字节比持续增加</li>
+<li>缓存层次结构的重要性</li>
+</ul>
+<p><strong>Roofline模型分析</strong>：
+算术强度(AI) = FLOPs / 内存字节数</p>
+<p>对于Laplace算子：</p>
+<ul>
+<li>FLOPs: 5次乘法 + 4次加法 = 9 FLOPs</li>
+<li>内存: 5次读取 × 8字节 = 40字节</li>
+<li>AI = 9/40 ≈ 0.225 FLOP/字节</li>
+</ul>
+<p>这远低于现代CPU的平衡点（通常 &gt; 10 FLOP/字节），说明是内存带宽受限。</p>
+<p><strong>优化策略</strong>：</p>
+<ol>
+<li><strong>时间阻塞(Temporal blocking)</strong>：</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 在缓存中多次使用数据</span>
+<span class="k">for</span> <span class="n">t_block</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">block_size</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">t_block</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">t_block</span><span class="o">+</span><span class="n">block_size</span><span class="p">,</span> <span class="n">T</span><span class="p">)):</span>
+        <span class="n">update_interior</span><span class="p">()</span>
+        <span class="n">exchange_boundaries</span><span class="p">()</span>
+</code></pre></div>
+
+<ol start="2">
+<li><strong>空间阻塞(Spatial blocking)</strong>：</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 分块处理以提高缓存利用率</span>
+<span class="k">for</span> <span class="n">ii</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">block</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">jj</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">block</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">ii</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">ii</span><span class="o">+</span><span class="n">block</span><span class="p">,</span> <span class="n">n</span><span class="p">)):</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">jj</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">jj</span><span class="o">+</span><span class="n">block</span><span class="p">,</span> <span class="n">n</span><span class="p">)):</span>
+                <span class="n">compute_stencil</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">)</span>
+</code></pre></div>
+
+<ol start="3">
+<li><strong>数据布局优化</strong>：
+   - 使用SoA而非AoS提高向量化效率
+   - 内存对齐提高SIMD效率</li>
+</ol>
+<h3 id="573">5.7.3 算子融合技术</h3>
+<p>算子融合通过合并多个操作减少内存访问次数。</p>
+<p><strong>未融合的CG迭代</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 5个独立的循环，5次内存遍历</span>
+<span class="n">q</span> <span class="o">=</span> <span class="n">A</span> <span class="o">@</span> <span class="n">p</span>           <span class="c1"># 循环1</span>
+<span class="n">alpha</span> <span class="o">=</span> <span class="n">rTr</span> <span class="o">/</span> <span class="p">(</span><span class="n">p</span> <span class="o">@</span> <span class="n">q</span><span class="p">)</span>  <span class="c1"># 循环2</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="n">alpha</span> <span class="o">*</span> <span class="n">p</span>    <span class="c1"># 循环3</span>
+<span class="n">r</span> <span class="o">=</span> <span class="n">r</span> <span class="o">-</span> <span class="n">alpha</span> <span class="o">*</span> <span class="n">q</span>    <span class="c1"># 循环4</span>
+<span class="n">rTr_new</span> <span class="o">=</span> <span class="n">r</span> <span class="o">@</span> <span class="n">r</span>      <span class="c1"># 循环5</span>
+</code></pre></div>
+
+<p><strong>融合后的实现</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">fused_cg_iteration</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">p</span><span class="p">,</span> <span class="n">A_func</span><span class="p">):</span>
+    <span class="c1"># 融合多个操作在一个循环中</span>
+    <span class="n">q</span> <span class="o">=</span> <span class="n">zeros_like</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+    <span class="n">pq</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">rTr_new</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+        <span class="c1"># 计算 q = Ap</span>
+        <span class="n">q</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">A_func</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span>
+        <span class="c1"># 累加 p·q</span>
+        <span class="n">pq</span> <span class="o">+=</span> <span class="n">p</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">q</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+    <span class="n">alpha</span> <span class="o">=</span> <span class="n">rTr</span> <span class="o">/</span> <span class="n">pq</span>
+
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+        <span class="c1"># 更新 x, r 并计算新的 r·r</span>
+        <span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">alpha</span> <span class="o">*</span> <span class="n">p</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">r</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-=</span> <span class="n">alpha</span> <span class="o">*</span> <span class="n">q</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">rTr_new</span> <span class="o">+=</span> <span class="n">r</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">r</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">q</span><span class="p">,</span> <span class="n">rTr_new</span>
+</code></pre></div>
+
+<p><strong>融合收益</strong>：</p>
+<ul>
+<li>减少内存遍历次数</li>
+<li>提高时间局部性</li>
+<li>更好的编译器优化机会</li>
+</ul>
+<h3 id="574-gpu">5.7.4 GPU实现策略</h3>
+<p>GPU上的无矩阵方法需要特殊考虑。</p>
+<p><strong>线程映射策略</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="kr">__global__</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="n">laplace_3d_kernel</span><span class="p">(</span>
+<span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">u</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">Au</span><span class="p">,</span><span class="w"> </span>
+<span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">nx</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">ny</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">nz</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">inv_h2</span>
+<span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">blockIdx</span><span class="p">.</span><span class="n">x</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nb">blockDim</span><span class="p">.</span><span class="n">x</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nb">threadIdx</span><span class="p">.</span><span class="n">x</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">blockIdx</span><span class="p">.</span><span class="n">y</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nb">blockDim</span><span class="p">.</span><span class="n">y</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nb">threadIdx</span><span class="p">.</span><span class="n">y</span><span class="p">;</span>
+<span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">blockIdx</span><span class="p">.</span><span class="n">z</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nb">blockDim</span><span class="p">.</span><span class="n">z</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nb">threadIdx</span><span class="p">.</span><span class="n">z</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">nx</span><span class="mi">-1</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>
+<span class="w">        </span><span class="n">j</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">ny</span><span class="mi">-1</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>
+<span class="w">        </span><span class="n">k</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">nz</span><span class="mi">-1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+
+<span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">nx</span><span class="o">*</span><span class="p">(</span><span class="n">j</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">ny</span><span class="o">*</span><span class="n">k</span><span class="p">);</span>
+<span class="w">        </span><span class="n">Au</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">inv_h2</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span>
+<span class="w">            </span><span class="mi">6</span><span class="o">*</span><span class="n">u</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span><span class="w"> </span>
+
+<span class="w">            </span><span class="o">-</span><span class="w"> </span><span class="n">u</span><span class="p">[</span><span class="n">idx</span><span class="mi">-1</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">u</span><span class="p">[</span><span class="n">idx</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span>
+<span class="w">            </span><span class="o">-</span><span class="w"> </span><span class="n">u</span><span class="p">[</span><span class="n">idx</span><span class="o">-</span><span class="n">nx</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">u</span><span class="p">[</span><span class="n">idx</span><span class="o">+</span><span class="n">nx</span><span class="p">]</span>
+<span class="w">            </span><span class="o">-</span><span class="w"> </span><span class="n">u</span><span class="p">[</span><span class="n">idx</span><span class="o">-</span><span class="n">nx</span><span class="o">*</span><span class="n">ny</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">u</span><span class="p">[</span><span class="n">idx</span><span class="o">+</span><span class="n">nx</span><span class="o">*</span><span class="n">ny</span><span class="p">]</span>
+<span class="w">        </span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><strong>共享内存优化</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="kr">__global__</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="n">optimized_laplace_kernel</span><span class="p">(...)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">__shared__</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">tile</span><span class="p">[</span><span class="n">TILE_DIM</span><span class="o">+</span><span class="mi">2</span><span class="p">][</span><span class="n">TILE_DIM</span><span class="o">+</span><span class="mi">2</span><span class="p">];</span>
+
+<span class="w">    </span><span class="c1">// 协作加载包含边界的数据块到共享内存</span>
+<span class="w">    </span><span class="n">load_tile_with_halo</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span><span class="w"> </span><span class="n">u</span><span class="p">,</span><span class="w"> </span><span class="p">...);</span>
+<span class="w">    </span><span class="nf">__syncthreads</span><span class="p">();</span>
+
+<span class="w">    </span><span class="c1">// 从共享内存计算</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">threadIdx</span><span class="p">.</span><span class="n">x</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">threadIdx</span><span class="p">.</span><span class="n">x</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">TILE_DIM</span><span class="mi">-1</span><span class="w"> </span><span class="o">&amp;&amp;</span>
+<span class="w">        </span><span class="nb">threadIdx</span><span class="p">.</span><span class="n">y</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">threadIdx</span><span class="p">.</span><span class="n">y</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">TILE_DIM</span><span class="mi">-1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+
+<span class="w">        </span><span class="kt">float</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">inv_h2</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span>
+<span class="w">            </span><span class="mi">4</span><span class="o">*</span><span class="n">tile</span><span class="p">[</span><span class="n">ty</span><span class="p">][</span><span class="n">tx</span><span class="p">]</span>
+
+<span class="w">            </span><span class="o">-</span><span class="w"> </span><span class="n">tile</span><span class="p">[</span><span class="n">ty</span><span class="mi">-1</span><span class="p">][</span><span class="n">tx</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tile</span><span class="p">[</span><span class="n">ty</span><span class="o">+</span><span class="mi">1</span><span class="p">][</span><span class="n">tx</span><span class="p">]</span>
+<span class="w">            </span><span class="o">-</span><span class="w"> </span><span class="n">tile</span><span class="p">[</span><span class="n">ty</span><span class="p">][</span><span class="n">tx</span><span class="mi">-1</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">tile</span><span class="p">[</span><span class="n">ty</span><span class="p">][</span><span class="n">tx</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span>
+<span class="w">        </span><span class="p">);</span>
+
+<span class="w">        </span><span class="c1">// 写回全局内存</span>
+<span class="w">        </span><span class="n">Au</span><span class="p">[</span><span class="n">global_idx</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">result</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><strong>性能考虑</strong>：</p>
+<ol>
+<li><strong>合并访问</strong>：确保相邻线程访问相邻内存</li>
+<li><strong>占用率</strong>：平衡寄存器使用和块大小</li>
+<li><strong>避免分支发散</strong>：最小化条件语句</li>
+<li><strong>使用纹理内存</strong>：对于有空间局部性的访问模式</li>
+</ol>
+<h2 id="58">5.8 泊松方程的快速解法</h2>
+<h3 id="581">5.8.1 格林函数与基本解</h3>
+<p>泊松方程 $\nabla^2 \phi = f$ 可以通过格林函数方法求解。</p>
+<p><strong>基本解（三维）</strong>：
+$$G(x, y) = -\frac{1}{4\pi||x-y||}$$
+<strong>通解</strong>：
+$$\phi(x) = \int_\Omega G(x, y) f(y) dy + \int_{\partial\Omega} \left[ G(x, y)\frac{\partial\phi}{\partial n} - \phi(y)\frac{\partial G}{\partial n} \right] ds$$
+对于自由空间（无边界）问题：
+$$\phi(x) = -\frac{1}{4\pi} \int_\Omega \frac{f(y)}{||x-y||} dy$$
+<strong>离散形式</strong>：
+$$\phi_i = \sum_j G_{ij} f_j \Delta V_j$$
+其中 $G_{ij} = -1/(4\pi||x_i - x_j||)$。</p>
+<h3 id="582-fmm">5.8.2 快速多极子方法(FMM)</h3>
+<p>直接计算所有粒子对相互作用需要 $O(N^2)$ 操作。FMM通过多极展开将复杂度降至 $O(N)$。</p>
+<p><strong>核心思想</strong>：</p>
+<ol>
+<li>远场使用多极展开近似</li>
+<li>近场直接计算</li>
+<li>层次结构加速计算</li>
+</ol>
+<p><strong>多极展开</strong>：
+对于源点 $y$ 在原点附近，场点 $x$ 远离原点：
+$$\frac{1}{||x-y||} \approx \sum_{l=0}^p \sum_{m=-l}^l \frac{Y_l^m(\hat{y})}{r^{l+1}} r_y^l Y_l^m(\hat{x})$$
+其中 $Y_l^m$ 是球谐函数。</p>
+<p><strong>FMM算法步骤</strong>：</p>
+<ol>
+<li><strong>构建树结构</strong>：八叉树(3D)或四叉树(2D)</li>
+<li><strong>上行遍历(Upward pass)</strong>：
+   - P2M: 粒子到多极
+   - M2M: 多极到多极（子到父）</li>
+<li><strong>下行遍历(Downward pass)</strong>：
+   - M2L: 多极到局部（远场作用）
+   - L2L: 局部到局部（父到子）</li>
+<li><strong>最终求值</strong>：
+   - L2P: 局部到粒子
+   - P2P: 粒子到粒子（近场直接）</li>
+</ol>
+<h3 id="583-pppm">5.8.3 PPPM方法</h3>
+<p>Particle-Particle Particle-Mesh (PPPM) 方法结合了直接求和和网格方法。</p>
+<p><strong>基本思想</strong>：
+$$\phi = \phi_{short} + \phi_{long}$$</p>
+<ul>
+<li>短程部分：直接粒子-粒子相互作用</li>
+<li>长程部分：通过FFT在网格上求解</li>
+</ul>
+<p><strong>算法流程</strong>：</p>
+<ol>
+<li>
+<p><strong>粒子到网格(P2G)</strong>：
+$$\rho_{\text{grid}}(x) = \sum_i q_i W(x - x_i)$$</p>
+</li>
+<li>
+<p><strong>网格上求解泊松方程</strong>（FFT）：
+$$\hat{\phi}_k = \frac{\hat{\rho}_k}{k^2}$$</p>
+</li>
+<li>
+<p><strong>网格到粒子(G2P)</strong>：
+$$\phi_i^{\text{long}} = \sum_{\text{grid}} \phi_{\text{grid}} W(x_{\text{grid}} - x_i)$$</p>
+</li>
+<li>
+<p><strong>短程修正</strong>：
+$$\phi_i = \phi_i^{\text{long}} + \sum_{j \in \text{near}} \frac{q_j \text{erfc}(\alpha r_{ij})}{r_{ij}}$$
+<strong>参数选择</strong>：</p>
+</li>
+</ol>
+<ul>
+<li>$\alpha$：短程/长程分离参数</li>
+<li>网格分辨率：平衡精度和效率</li>
+<li>插值阶数：通常使用3次B样条</li>
+</ul>
+<h3 id="584-fft">5.8.4 FFT方法(周期边界)</h3>
+<p>对于周期边界条件，泊松方程可以通过FFT高效求解。</p>
+<p><strong>算法</strong>：</p>
+<ol>
+<li>
+<p><strong>前向FFT</strong>：
+$$\hat{f}_k = \text{FFT}(f)$$</p>
+</li>
+<li>
+<p><strong>谱空间求解</strong>：
+$$\hat{\phi}_k = \frac{\hat{f}_k}{-k^2}$$
+注意：$k = 0$ 模式需要特殊处理（设为0或平均值）</p>
+</li>
+<li>
+<p><strong>逆向FFT</strong>：
+$$\phi = \text{IFFT}(\hat{\phi})$$
+<strong>离散波数</strong>：
+对于 $N \times N$ 网格：
+$$k_x = \frac{2\pi}{L} n_x, \quad n_x = 0, 1, ..., N-1$$
+实际计算中使用：
+$$k^2 = \frac{4}{h^2}\left[\sin^2\left(\frac{\pi n_x}{N}\right) + \sin^2\left(\frac{\pi n_y}{N}\right)\right]$$
+<strong>非周期边界的处理</strong>：</p>
+</li>
+<li>
+<p><strong>正弦变换</strong>：适用于Dirichlet边界</p>
+</li>
+<li><strong>余弦变换</strong>：适用于Neumann边界</li>
+<li><strong>Chebyshev方法</strong>：非均匀网格</li>
+</ol>
+<p><strong>实现优化</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">poisson_fft_solve</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">h</span><span class="p">):</span>
+    <span class="c1"># 前向FFT</span>
+    <span class="n">f_hat</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">fft</span><span class="o">.</span><span class="n">fftn</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+    <span class="c1"># 构造波数</span>
+    <span class="n">kx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">fft</span><span class="o">.</span><span class="n">fftfreq</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">d</span><span class="o">=</span><span class="n">h</span><span class="p">)</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span>
+    <span class="n">ky</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">fft</span><span class="o">.</span><span class="n">fftfreq</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">d</span><span class="o">=</span><span class="n">h</span><span class="p">)</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span>
+    <span class="n">kx</span><span class="p">,</span> <span class="n">ky</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">meshgrid</span><span class="p">(</span><span class="n">kx</span><span class="p">,</span> <span class="n">ky</span><span class="p">,</span> <span class="n">indexing</span><span class="o">=</span><span class="s1">&#39;ij&#39;</span><span class="p">)</span>
+
+    <span class="c1"># 离散Laplace算子的特征值</span>
+    <span class="n">k_squared</span> <span class="o">=</span> <span class="p">(</span><span class="mi">2</span> <span class="o">-</span> <span class="mi">2</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">kx</span><span class="o">*</span><span class="n">h</span><span class="p">))</span><span class="o">/</span><span class="n">h</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> \
+                <span class="p">(</span><span class="mi">2</span> <span class="o">-</span> <span class="mi">2</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">ky</span><span class="o">*</span><span class="n">h</span><span class="p">))</span><span class="o">/</span><span class="n">h</span><span class="o">**</span><span class="mi">2</span>
+
+    <span class="c1"># 避免除零</span>
+    <span class="n">k_squared</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="n">phi_hat</span> <span class="o">=</span> <span class="n">f_hat</span> <span class="o">/</span> <span class="p">(</span><span class="o">-</span><span class="n">k_squared</span><span class="p">)</span>
+    <span class="n">phi_hat</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>  <span class="c1"># 设置平均值为0</span>
+
+    <span class="c1"># 逆向FFT</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">fft</span><span class="o">.</span><span class="n">ifftn</span><span class="p">(</span><span class="n">phi_hat</span><span class="p">)</span><span class="o">.</span><span class="n">real</span>
+</code></pre></div>
+
+<h2 id="_1">本章小结</h2>
+<p>本章深入探讨了欧拉视角物理仿真中的核心计算问题——大规模稀疏线性系统的求解。我们学习了从基础迭代法到现代高性能算法的完整谱系：</p>
+<p><strong>关键概念</strong>：</p>
+<ol>
+<li><strong>稀疏矩阵特性</strong>：CSR/COO存储格式，零空间处理，兼容性条件</li>
+<li><strong>Krylov子空间方法</strong>：CG用于对称正定系统，BiCGSTAB用于非对称系统</li>
+<li><strong>预条件技术</strong>：Jacobi、IC、MIC等预条件器显著加速收敛</li>
+<li><strong>多重网格方法</strong>：利用误差的频率特性，实现 $O(n)$ 复杂度</li>
+<li><strong>代数多重网格</strong>：不依赖几何信息，自动构建网格层次</li>
+<li><strong>无矩阵方法</strong>：优化内存带宽使用，适应现代计算架构</li>
+<li><strong>特殊快速算法</strong>：FFT、FMM、PPPM等针对泊松方程的优化方法</li>
+</ol>
+<p><strong>核心公式</strong>：</p>
+<ul>
+<li>Krylov子空间：$\mathcal{K}_m(A, r_0) = \text{span}\{r_0, Ar_0, ..., A^{m-1}r_0\}$</li>
+<li>CG收敛率：$||e_k||_A \leq 2\left(\frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1}\right)^k ||e_0||_A$</li>
+<li>Galerkin粗化：$A_{2h} = I_{2h}^h A_h I_h^{2h}$</li>
+<li>泊松方程基本解：$G(x, y) = -\frac{1}{4\pi||x-y||}$（3D）</li>
+</ul>
+<h2 id="_2">练习题</h2>
+<h3 id="_3">基础题</h3>
+<p><strong>练习 5.1</strong>：稀疏矩阵存储
+给定5×5三对角矩阵：
+$$A = \begin{bmatrix}
+2 &amp; -1 &amp; 0 &amp; 0 &amp; 0\\
+-1 &amp; 2 &amp; -1 &amp; 0 &amp; 0\\
+0 &amp; -1 &amp; 2 &amp; -1 &amp; 0\\
+0 &amp; 0 &amp; -1 &amp; 2 &amp; -1\\
+0 &amp; 0 &amp; 0 &amp; -1 &amp; 2
+\end{bmatrix}$$
+写出其CSR格式表示。</p>
+<details>
+<summary>提示</summary>
+<p>CSR需要三个数组：values（非零值）、col_indices（列索引）、row_ptrs（行指针）。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>CSR表示：</p>
+<ul>
+<li>values = [2, -1, -1, 2, -1, -1, 2, -1, -1, 2, -1, -1, 2]</li>
+<li>col_indices = [0, 1, 0, 1, 2, 1, 2, 3, 2, 3, 4, 3, 4]</li>
+<li>row_ptrs = [0, 2, 5, 8, 11, 13]</li>
+</ul>
+<p>验证：第i行的非零元素在values[row_ptrs[i]:row_ptrs[i+1]]中。</p>
+</details>
+<p><strong>练习 5.2</strong>：CG迭代
+对于系统 $Ax = b$，其中：
+$$A = \begin{bmatrix} 4 &amp; 1 \\ 1 &amp; 3 \end{bmatrix}, \quad b = \begin{bmatrix} 1 \\ 2 \end{bmatrix}$$
+手工执行一步CG迭代，初始猜测 $x_0 = [0, 0]^T$。</p>
+<details>
+<summary>提示</summary>
+<p>CG第一步：$r_0 = b - Ax_0$，$p_0 = r_0$，计算 $\alpha_0 = \frac{r_0^T r_0}{p_0^T A p_0}$。</p>
+</details>
+<details>
+<summary>答案</summary>
+<ol>
+<li>初始残差：$r_0 = b - Ax_0 = [1, 2]^T$</li>
+<li>初始搜索方向：$p_0 = r_0 = [1, 2]^T$</li>
+<li>计算 $Ap_0 = [4·1 + 1·2, 1·1 + 3·2]^T = [6, 7]^T$</li>
+<li>步长：$\alpha_0 = \frac{r_0^T r_0}{p_0^T Ap_0} = \frac{1^2 + 2^2}{1·6 + 2·7} = \frac{5}{20} = 0.25$</li>
+<li>更新解：$x_1 = x_0 + \alpha_0 p_0 = [0, 0]^T + 0.25[1, 2]^T = [0.25, 0.5]^T$</li>
+<li>更新残差：$r_1 = r_0 - \alpha_0 Ap_0 = [1, 2]^T - 0.25[6, 7]^T = [-0.5, 0.25]^T$</li>
+</ol>
+</details>
+<p><strong>练习 5.3</strong>：多重网格限制算子
+对于一维网格上的向量 $u_h = [1, 4, 2, 5, 3]$（5个点），使用全权重限制算子计算粗网格向量 $u_{2h}$。</p>
+<details>
+<summary>提示</summary>
+<p>一维全权重限制：$u_{2h,i} = \frac{1}{4}u_{h,2i-1} + \frac{1}{2}u_{h,2i} + \frac{1}{4}u_{h,2i+1}$。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>粗网格有3个点（索引0, 1, 2对应细网格的0, 2, 4）：</p>
+<ul>
+<li>$u_{2h,0} = u_{h,0} = 1$（边界点直接复制）</li>
+<li>$u_{2h,1} = \frac{1}{4}u_{h,1} + \frac{1}{2}u_{h,2} + \frac{1}{4}u_{h,3} = \frac{1}{4}·4 + \frac{1}{2}·2 + \frac{1}{4}·5 = 3.25$</li>
+<li>$u_{2h,2} = u_{h,4} = 3$（边界点直接复制）</li>
+</ul>
+<p>因此 $u_{2h} = [1, 3.25, 3]$。</p>
+</details>
+<p><strong>练习 5.4</strong>：AMG强连接
+给定矩阵行：$a_i = [0, -0.1, 0, -0.8, 2.0, -0.5, 0, -0.2, -0.4]$，使用阈值 $\theta = 0.25$，确定节点 $i$ 强连接到哪些节点。</p>
+<details>
+<summary>提示</summary>
+<p>节点 $j$ 是强连接如果 $|a_{ij}| \geq \theta \max_{k \neq i} |a_{ik}|$。</p>
+</details>
+<details>
+<summary>答案</summary>
+<ol>
+<li>找出最大非对角元素：$\max_{k \neq i} |a_{ik}| = 0.8$（对应节点3）</li>
+<li>阈值：$\theta \max = 0.25 × 0.8 = 0.2$</li>
+<li>强连接判断：
+   - 节点1：$|a_{i1}| = 0.1 &lt; 0.2$ ✗
+   - 节点3：$|a_{i3}| = 0.8 \geq 0.2$ ✓
+   - 节点5：$|a_{i5}| = 0.5 \geq 0.2$ ✓
+   - 节点7：$|a_{i7}| = 0.2 \geq 0.2$ ✓
+   - 节点8：$|a_{i8}| = 0.4 \geq 0.2$ ✓</li>
+</ol>
+<p>节点 $i$ 强连接到节点 {3, 5, 7, 8}。</p>
+</details>
+<h3 id="_4">挑战题</h3>
+<p><strong>练习 5.5</strong>：条件数与CG收敛
+证明：对于条件数为 $\kappa$ 的SPD矩阵，CG方法在 $k = O(\sqrt{\kappa} \log(1/\epsilon))$ 步内将相对误差降至 $\epsilon$。</p>
+<details>
+<summary>提示</summary>
+<p>使用CG收敛估计 $||e_k||_A \leq 2\left(\frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1}\right)^k ||e_0||_A$。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>从收敛估计出发：
+$$\frac{||e_k||_A}{||e_0||_A} \leq 2\left(\frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1}\right)^k$$
+要使相对误差 $\leq \epsilon$，需要：
+$$2\left(\frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1}\right)^k \leq \epsilon$$
+取对数：
+$$k \log\left(\frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1}\right) \leq \log(\epsilon/2)$$
+当 $\kappa \gg 1$ 时：
+$$\frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1} = \frac{1 - 1/\sqrt{\kappa}}{1 + 1/\sqrt{\kappa}} \approx 1 - \frac{2}{\sqrt{\kappa}}$$
+因此：
+$$\log\left(\frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1}\right) \approx \log\left(1 - \frac{2}{\sqrt{\kappa}}\right) \approx -\frac{2}{\sqrt{\kappa}}$$
+代入得：
+$$k \cdot \left(-\frac{2}{\sqrt{\kappa}}\right) \leq \log(\epsilon/2)$$
+$$k \geq \frac{\sqrt{\kappa}}{2} \log(2/\epsilon)$$
+因此 $k = O(\sqrt{\kappa} \log(1/\epsilon))$。</p>
+</details>
+<p><strong>练习 5.6</strong>：多重网格复杂度分析
+对于 $n × n$ 二维网格，证明V-cycle多重网格的计算复杂度是 $O(n^2)$。假设每层使用固定次数的Jacobi光滑。</p>
+<details>
+<summary>提示</summary>
+<p>计算所有层级的工作量总和，利用几何级数求和。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>设最细网格有 $N = n^2$ 个点。</p>
+<p>各层网格点数：</p>
+<ul>
+<li>Level 0: $n^2$</li>
+<li>Level 1: $(n/2)^2 = n^2/4$</li>
+<li>Level 2: $(n/4)^2 = n^2/16$</li>
+<li>...</li>
+<li>Level L: $O(1)$</li>
+</ul>
+<p>每层工作量正比于该层点数。设每个点的工作量为 $c$（光滑迭代）。</p>
+<p>V-cycle总工作量：
+$$W = c \sum_{l=0}^L \frac{n^2}{4^l} = cn^2 \sum_{l=0}^L \frac{1}{4^l}$$
+这是几何级数，和为：
+$$\sum_{l=0}^{\infty} \frac{1}{4^l} = \frac{1}{1-1/4} = \frac{4}{3}$$
+因此：
+$$W = cn^2 \cdot \frac{4}{3} = O(n^2)$$
+这证明了V-cycle的线性复杂度（相对于未知数个数）。</p>
+</details>
+<p><strong>练习 5.7</strong>：无矩阵方法的内存带宽分析
+对于三维Laplace算子（7点模板），比较传统稀疏矩阵方法和无矩阵方法的内存带宽需求。假设使用双精度浮点数。</p>
+<details>
+<summary>提示</summary>
+<p>计算每个矩阵-向量乘积需要的内存读写量。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p><strong>传统稀疏矩阵方法</strong>（CSR格式）：</p>
+<ul>
+<li>读取：7个矩阵值 + 7个列索引 + 2个行指针 + 7个向量元素</li>
+<li>写入：1个结果元素</li>
+<li>总计：7×8 + 7×4 + 2×4 + 7×8 + 1×8 = 156字节/点</li>
+</ul>
+<p><strong>无矩阵方法</strong>：</p>
+<ul>
+<li>读取：7个向量元素</li>
+<li>写入：1个结果元素</li>
+<li>总计：7×8 + 1×8 = 64字节/点</li>
+</ul>
+<p>内存带宽减少：$\frac{156-64}{156} \approx 59\%$</p>
+<p><strong>算术强度比较</strong>：</p>
+<ul>
+<li>传统：AI = 13 FLOPs / 156 bytes ≈ 0.083 FLOP/byte</li>
+<li>无矩阵：AI = 13 FLOPs / 64 bytes ≈ 0.203 FLOP/byte</li>
+</ul>
+<p>无矩阵方法的算术强度提高约2.4倍，更适合现代处理器。</p>
+</details>
+<p><strong>练习 5.8</strong>：FFT求解泊松方程的误差分析
+使用FFT方法求解周期边界的二维泊松方程时，为什么需要特殊处理 $k = 0$ 模式？这如何影响解的唯一性？</p>
+<details>
+<summary>提示</summary>
+<p>考虑泊松方程的兼容性条件和周期边界下的零空间。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p><strong>数学分析</strong>：</p>
+<p>泊松方程：$\nabla^2 u = f$</p>
+<p>Fourier变换后：$-k^2 \hat{u}_k = \hat{f}_k$</p>
+<p>当 $k = 0$ 时：</p>
+<ul>
+<li>左边：$-0^2 \cdot \hat{u}_0 = 0$</li>
+<li>右边：$\hat{f}_0 = \int_\Omega f dx$</li>
+</ul>
+<p><strong>兼容性条件</strong>：
+有解的必要条件是 $\hat{f}_0 = 0$，即：
+$$\int_\Omega f dx = 0$$</p>
+<p>这对应于物理上的守恒条件（如不可压缩流体的质量守恒）。</p>
+<p><strong>零空间</strong>：
+$k = 0$ 模式对应常数函数，是Laplace算子在周期边界下的零空间。</p>
+<p><strong>处理方法</strong>：</p>
+<ol>
+<li>检查兼容性：验证 $\sum_{ij} f_{ij} \approx 0$</li>
+<li>设置 $\hat{u}_0 = 0$：固定解的平均值为0</li>
+<li>或者：添加约束 $\int u dx = c$</li>
+</ol>
+<p><strong>物理意义</strong>：
+在周期边界下，泊松方程只能确定势函数的梯度，不能确定绝对值。这反映了规范不变性——物理量（如速度、电场）只依赖于势的梯度。</p>
+</details>
+<h2 id="_5">常见陷阱与错误</h2>
+<ol>
+<li>
+<p><strong>零空间处理不当</strong>：
+   - 错误：直接求解奇异系统导致发散
+   - 正确：投影到零空间正交补或固定一点</p>
+</li>
+<li>
+<p><strong>预条件器选择</strong>：
+   - 错误：对所有问题都用Jacobi预条件
+   - 正确：根据问题特性选择合适预条件器</p>
+</li>
+<li>
+<p><strong>多重网格粗网格</strong>：
+   - 错误：粗网格太粗导致不能表示低频误差
+   - 正确：保证粗网格仍能解析问题的主要特征</p>
+</li>
+<li>
+<p><strong>Krylov方法数值稳定性</strong>：
+   - 错误：忽视正交性损失导致停滞
+   - 正确：使用重正交化或更稳定的变种</p>
+</li>
+<li>
+<p><strong>无矩阵方法的边界处理</strong>：
+   - 错误：硬编码边界条件导致不灵活
+   - 正确：设计通用的边界处理框架</p>
+</li>
+</ol>
+<h2 id="_6">最佳实践检查清单</h2>
+<h3 id="_7">求解器选择</h3>
+<ul>
+<li>[ ] 矩阵是否对称正定？→ 使用CG</li>
+<li>[ ] 矩阵是否非对称？→ 使用BiCGSTAB或GMRES</li>
+<li>[ ] 问题规模是否很大？→ 考虑多重网格</li>
+<li>[ ] 是否有好的预条件器？→ 使用预条件Krylov方法</li>
+<li>[ ] 内存是否受限？→ 使用无矩阵方法</li>
+</ul>
+<h3 id="_8">性能优化</h3>
+<ul>
+<li>[ ] 是否分析了矩阵的稀疏模式？</li>
+<li>[ ] 是否测试了不同的预条件器？</li>
+<li>[ ] 是否优化了矩阵-向量乘积？</li>
+<li>[ ] 是否考虑了并行化？</li>
+<li>[ ] 是否利用了问题的特殊结构？</li>
+</ul>
+<h3 id="_9">数值稳定性</h3>
+<ul>
+<li>[ ] 是否处理了零空间？</li>
+<li>[ ] 是否设置了合理的收敛准则？</li>
+<li>[ ] 是否监控了迭代历史？</li>
+<li>[ ] 是否有备用求解策略？</li>
+<li>[ ] 是否验证了解的正确性？</li>
+</ul>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter4.html" class="nav-link prev">← 第四章：欧拉视角（1）</a><a href="./chapter6.html" class="nav-link next">第六章：高级输送格式与等势面方法 →</a></nav>
+        </main>
+    </div>
+</body>
+</html>

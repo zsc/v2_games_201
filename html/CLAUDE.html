@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Untitled</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">高级物理引擎实战教程</a></li><li class=""><a href="./chapter1.html">第一章：导论</a></li><li class=""><a href="./chapter2.html">第二章：拉格朗日视角（1）</a></li><li class=""><a href="./chapter3.html">第三章：拉格朗日视角（2）：有限元仿真</a></li><li class=""><a href="./chapter4.html">第四章：欧拉视角（1）</a></li><li class=""><a href="./chapter5.html">第五章：欧拉视角（2）：线性系统求解器</a></li><li class=""><a href="./chapter6.html">第六章：高级输送格式与等势面方法</a></li><li class=""><a href="./chapter7.html">第七章：混合欧拉-拉格朗日视角（1）</a></li><li class=""><a href="./chapter8.html">第八章：混合欧拉-拉格朗日视角（2）：物质点法</a></li><li class=""><a href="./chapter9.html">第九章：高性能计算</a></li><li class=""><a href="./chapter10.html">第十章：可微编程与机器学习</a></li><li class=""><a href="./chapter8b.html">第八章：多重网格方法</a></li><li class="active"><a href="./CLAUDE.html">Untitled</a></li><li class=""><a href="./old.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <p>（交流可以用英文，本文档中文，保留这句）</p>
+<h2 id="_1">项目目标</h2>
+<p>编写一份高级物理引擎中文教程markdown，要包含大量的习题和参考答案（答案默认折叠）。能数学算尽量数学算，合适时提及相关函数名但不写代码。
+内容范围1:1严格参考 old.md。挑战型练习题可以适度拔高。
+内容在 https://forum.taichi-lang.cn/t/topic/272 的各讲讲义的基础上，进行扩展补充相关材料。
+文件组织是 index.md + chapter1.md + ...
+数学公式都用 latex。代码用 ``` 包起来。</p>
+<h2 id="audience">Audience</h2>
+<p>verteran programmer and AI scientists</p>
+<h2 id="_2">章节结构要求</h2>
+<p>每个章节应包含：</p>
+<ol>
+<li><strong>开篇段落</strong>：简要介绍本章内容和学习目标</li>
+<li><strong>本章小结</strong>：总结关键概念和公式</li>
+<li><strong>练习题</strong>：
+   - 每章包含6-8道练习题
+   - 50%基础题（帮助熟悉材料）
+   - 50%挑战题（包括开放性思考题）
+   - 每题提供提示（Hint）
+   - 答案默认折叠，不包含代码</li>
+<li><strong>常见陷阱与错误</strong> (Gotchas)：每章包含该主题的常见错误和调试技巧</li>
+<li><strong>最佳实践检查清单</strong>：每章末尾提供设计审查要点</li>
+</ol>
+<h2 id="_3">术语中英对照表</h2>
+<p>| 英文 | 中文 |</p>
+<table>
+<thead>
+<tr>
+<th>英文</th>
+<th>中文</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Lagrangian</td>
+<td>拉格朗日</td>
+</tr>
+<tr>
+<td>Eulerian</td>
+<td>欧拉</td>
+</tr>
+<tr>
+<td>Mass-spring systems</td>
+<td>弹簧质点系统</td>
+</tr>
+<tr>
+<td>Explicit/implicit time integrators</td>
+<td>显式/隐式时间积分器</td>
+</tr>
+<tr>
+<td>Smoothed particle hydrodynamics</td>
+<td>光滑粒子流体动力学</td>
+</tr>
+<tr>
+<td>Position-based fluids</td>
+<td>基于位置的流体</td>
+</tr>
+<tr>
+<td>Voxelization</td>
+<td>体素化</td>
+</tr>
+<tr>
+<td>Neighborhood search</td>
+<td>邻居搜索</td>
+</tr>
+<tr>
+<td>Weak form</td>
+<td>弱形式</td>
+</tr>
+<tr>
+<td>Hexahedron grid</td>
+<td>六面体网格</td>
+</tr>
+<tr>
+<td>Tetrahedra mesh</td>
+<td>四面体网格</td>
+</tr>
+<tr>
+<td>Invertible</td>
+<td>可逆</td>
+</tr>
+<tr>
+<td>Topology optimization</td>
+<td>拓扑优化</td>
+</tr>
+<tr>
+<td>Semi-Lagrangian advection</td>
+<td>半拉格朗日输送</td>
+</tr>
+<tr>
+<td>Chorin-Style projection</td>
+<td>Chorin式压力投影</td>
+</tr>
+<tr>
+<td>Staggered grid</td>
+<td>Staggered网格</td>
+</tr>
+<tr>
+<td>Nullspaces</td>
+<td>零空间</td>
+</tr>
+<tr>
+<td>Krylov-subspace solvers</td>
+<td>Krylov子空间求解器</td>
+</tr>
+<tr>
+<td>Matrix-free</td>
+<td>无矩阵</td>
+</tr>
+<tr>
+<td>Poisson equations</td>
+<td>泊松方程</td>
+</tr>
+<tr>
+<td>Preconditioning</td>
+<td>预条件</td>
+</tr>
+<tr>
+<td>Multigrid methods</td>
+<td>多重网格方法</td>
+</tr>
+<tr>
+<td>Advection schemes</td>
+<td>输送格式</td>
+</tr>
+<tr>
+<td>Signed-distance fields</td>
+<td>有符号距离场</td>
+</tr>
+<tr>
+<td>Level sets</td>
+<td>等势面</td>
+</tr>
+<tr>
+<td>Free-surface</td>
+<td>自由表面</td>
+</tr>
+<tr>
+<td>Path tracing</td>
+<td>路径追踪</td>
+</tr>
+<tr>
+<td>Sphere tracing</td>
+<td>球面追踪</td>
+</tr>
+<tr>
+<td>Motion blur</td>
+<td>运动模糊</td>
+</tr>
+<tr>
+<td>Marching cubes</td>
+<td>行军立方体</td>
+</tr>
+<tr>
+<td>Digital differential analyzer</td>
+<td>数字微分分析器</td>
+</tr>
+<tr>
+<td>Voxel rendering</td>
+<td>体素渲染</td>
+</tr>
+<tr>
+<td>Volumetric rendering</td>
+<td>体积渲染</td>
+</tr>
+<tr>
+<td>Particle-grid transfers</td>
+<td>粒子-网格传输</td>
+</tr>
+<tr>
+<td>Particle-in-Cell</td>
+<td>粒子元胞法</td>
+</tr>
+<tr>
+<td>Fluid Implicit Particles</td>
+<td>流体隐粒子</td>
+</tr>
+<tr>
+<td>Affine Particle-in-Cell</td>
+<td>仿射粒子元胞法</td>
+</tr>
+<tr>
+<td>Material Point Method</td>
+<td>物质点法</td>
+</tr>
+<tr>
+<td>Constitutive models</td>
+<td>本构模型</td>
+</tr>
+<tr>
+<td>Moving Least Squares MPM</td>
+<td>移动最小二乘物质点法</td>
+</tr>
+<tr>
+<td>Lagrangian forces</td>
+<td>拉格朗日力</td>
+</tr>
+<tr>
+<td>Numeric fracture</td>
+<td>数值断裂</td>
+</tr>
+<tr>
+<td>Continuum Damage Mechanics</td>
+<td>连续介质伤害力学</td>
+</tr>
+<tr>
+<td>Processor microarchitectures</td>
+<td>处理器微结构</td>
+</tr>
+<tr>
+<td>Memory hierarchy</td>
+<td>内存层级</td>
+</tr>
+<tr>
+<td>Sparse data structures</td>
+<td>稀疏数据结构</td>
+</tr>
+<tr>
+<td>Differentiable programming</td>
+<td>可微编程</td>
+</tr>
+<tr>
+<td>Checkpointing</td>
+<td>Checkpointing技巧</td>
+</tr>
+</tbody>
+</table>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter8b.html" class="nav-link prev">← 第八章：多重网格方法</a><a href="./old.html" class="nav-link next">Untitled →</a></nav>
+        </main>
+    </div>
+</body>
+</html>

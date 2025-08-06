@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第三章：拉格朗日视角（2）：有限元仿真</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">高级物理引擎实战教程</a></li><li class=""><a href="./chapter1.html">第一章：导论</a></li><li class=""><a href="./chapter2.html">第二章：拉格朗日视角（1）</a></li><li class="active"><a href="./chapter3.html">第三章：拉格朗日视角（2）：有限元仿真</a></li><li class=""><a href="./chapter4.html">第四章：欧拉视角（1）</a></li><li class=""><a href="./chapter5.html">第五章：欧拉视角（2）：线性系统求解器</a></li><li class=""><a href="./chapter6.html">第六章：高级输送格式与等势面方法</a></li><li class=""><a href="./chapter7.html">第七章：混合欧拉-拉格朗日视角（1）</a></li><li class=""><a href="./chapter8.html">第八章：混合欧拉-拉格朗日视角（2）：物质点法</a></li><li class=""><a href="./chapter9.html">第九章：高性能计算</a></li><li class=""><a href="./chapter10.html">第十章：可微编程与机器学习</a></li><li class=""><a href="./chapter8b.html">第八章：多重网格方法</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li><li class=""><a href="./old.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <h1 id="2">第三章：拉格朗日视角（2）：有限元仿真</h1>
+<p>有限元方法(FEM)是物理仿真中最重要的数值方法之一，广泛应用于固体力学、流体力学和传热等领域。本章将深入探讨有限元方法的理论基础，从弱形式推导开始，逐步介绍材料模型、网格类型和高级特性。通过学习本章内容，读者将掌握使用有限元方法进行弹性体仿真的核心技术，并了解拓扑优化等前沿应用。</p>
+<h2 id="31">3.1 弱形式与拉格朗日有限元入门</h2>
+<p>有限元方法的核心思想是将连续的偏微分方程问题转化为离散的线性代数问题。这个转化过程的关键是弱形式(weak form)，它不仅降低了对解的光滑性要求，还自然地引入了边界条件的处理方式。</p>
+<h3 id="311-vs">3.1.1 强形式vs弱形式</h3>
+<p>在物理仿真中，我们经常需要求解偏微分方程(PDE)。以泊松方程为例，它描述了稳态热传导、静电势等物理现象：</p>
+<p><strong>强形式</strong>：
+$$\nabla \cdot \nabla u = f \quad \text{in } \Omega$$
+$$u = g \quad \text{on } \partial\Omega_D \quad \text{(Dirichlet边界)}$$
+$$\nabla u \cdot n = h \quad \text{on } \partial\Omega_N \quad \text{(Neumann边界)}$$
+其中：</p>
+<ul>
+<li>$\Omega$ 是求解域</li>
+<li>$\partial\Omega = \partial\Omega_D \cup \partial\Omega_N$ 是边界</li>
+<li>$n$ 是外法向量</li>
+<li>$f$ 是源项（如热源密度）</li>
+<li>$g$ 是已知的边界值（如温度）</li>
+<li>$h$ 是已知的边界通量（如热流）</li>
+</ul>
+<p>强形式要求解在每个点都满足微分方程，这意味着：</p>
+<ol>
+<li>解必须二阶可微（$C^2$连续）</li>
+<li>在不连续点（如材料界面）难以处理</li>
+<li>数值离散化不直观</li>
+</ol>
+<p><strong>弱形式推导</strong>：
+引入测试函数（也称权函数）$w \in V$，其中 $V = \{w : w \in H^1(\Omega), w = 0 \text{ on } \partial\Omega_D\}$。</p>
+<p>将强形式两边同时乘以测试函数并在域上积分：
+$$\int_\Omega w(\nabla \cdot \nabla u) \, d\Omega = \int_\Omega wf \, d\Omega$$
+这就是弱形式的起点。注意到左边包含了$u$的二阶导数，我们将通过分部积分降低导数阶数。</p>
+<h3 id="312">3.1.2 分部积分与散度定理</h3>
+<p>分部积分是将强形式转化为弱形式的关键工具。回顾一维的分部积分公式：
+$$\int_a^b u'v \, dx = [uv]_a^b - \int_a^b uv' \, dx$$
+在多维情况下，我们使用散度定理（也称高斯定理）：
+$$\int_\Omega \nabla \cdot \mathbf{F} \, d\Omega = \int_{\partial\Omega} \mathbf{F} \cdot n \, d\Gamma$$
+<strong>详细推导过程</strong>：
+从 $\int_\Omega w(\nabla \cdot \nabla u) \, d\Omega$ 开始，注意到 $\nabla \cdot \nabla u = \nabla \cdot (\nabla u)$。</p>
+<p>使用恒等式：
+$$\nabla \cdot (w\nabla u) = \nabla w \cdot \nabla u + w(\nabla \cdot \nabla u)$$
+重排得：
+$$w(\nabla \cdot \nabla u) = \nabla \cdot (w\nabla u) - \nabla w \cdot \nabla u$$
+代入积分：
+$$\int_\Omega w(\nabla \cdot \nabla u) \, d\Omega = \int_\Omega \nabla \cdot (w\nabla u) \, d\Omega - \int_\Omega \nabla w \cdot \nabla u \, d\Omega$$
+应用散度定理于第一项：
+$$\int_\Omega w(\nabla \cdot \nabla u) \, d\Omega = \int_{\partial\Omega} w \nabla u \cdot n \, d\Gamma - \int_\Omega \nabla w \cdot \nabla u \, d\Omega$$
+<strong>处理边界积分</strong>：
+边界积分需要根据边界类型分别处理：
+$$\int_{\partial\Omega} w \nabla u \cdot n \, d\Gamma = \int_{\partial\Omega_D} w \nabla u \cdot n \, d\Gamma + \int_{\partial\Omega_N} w \nabla u \cdot n \, d\Gamma$$
+由于测试函数在Dirichlet边界上为零（$w = 0$ on $\partial\Omega_D$），第一项消失。
+在Neumann边界上，我们有 $\nabla u \cdot n = h$，因此：
+$$\int_{\partial\Omega} w \nabla u \cdot n \, d\Gamma = \int_{\partial\Omega_N} wh \, d\Gamma$$
+<strong>弱形式的最终形式</strong>：
+$$\int_\Omega \nabla w \cdot \nabla u \, d\Omega = \int_\Omega wf \, d\Omega + \int_{\partial\Omega_N} wh \, d\Gamma$$
+这就是泊松方程的弱形式，也称为变分形式。注意到：</p>
+<ol>
+<li>只需要$u$和$w$的一阶导数（$H^1$空间）</li>
+<li>Neumann边界条件自然地出现在弱形式中（自然边界条件）</li>
+<li>Dirichlet边界条件通过测试函数空间强制满足（本质边界条件）</li>
+</ol>
+<h3 id="313-galerkin">3.1.3 Galerkin方法</h3>
+<p>Galerkin方法是将无限维函数空间问题转化为有限维线性代数问题的一般框架。有限元方法是Galerkin方法的一个特例，其特点是使用具有局部支撑的基函数。</p>
+<p><strong>Galerkin离散化的步骤</strong>：</p>
+<ol>
+<li>
+<p><strong>构造有限维子空间</strong>：
+   选择有限维试函数空间 $V_h \subset V$：
+$$V_h = \text{span}\{\phi_1, \phi_2, ..., \phi_n\}$$
+其中$h$表示网格尺寸，$\phi_i$是基函数（也称形函数）。</p>
+</li>
+<li>
+<p><strong>解的离散表示</strong>：
+   将近似解$u_h$表示为基函数的线性组合：
+$$u_h(x) = \sum_{j=1}^n u_j \phi_j(x)$$
+其中$u_j$是待求的系数（节点值）。</p>
+</li>
+<li>
+<p><strong>Galerkin投影</strong>：
+   要求残差与所有测试函数正交。选择测试函数 $w_h = \phi_i$（$i = 1, 2, ..., n$），代入弱形式：
+$$\int_\Omega \nabla \phi_i \cdot \nabla u_h \, d\Omega = \int_\Omega \phi_i f \, d\Omega + \int_{\partial\Omega_N} \phi_i h \, d\Gamma$$</p>
+</li>
+<li>
+<p><strong>线性方程组</strong>：
+   将$u_h$的表达式代入：
+$$\sum_{j=1}^n u_j \int_\Omega \nabla \phi_i \cdot \nabla \phi_j \, d\Omega = \int_\Omega \phi_i f \, d\Omega + \int_{\partial\Omega_N} \phi_i h \, d\Gamma$$
+定义：</p>
+</li>
+</ol>
+<ul>
+<li>刚度矩阵：$K_{ij} = \int_\Omega \nabla \phi_i \cdot \nabla \phi_j \, d\Omega$</li>
+<li>载荷向量：$f_i = \int_\Omega \phi_i f \, d\Omega + \int_{\partial\Omega_N} \phi_i h \, d\Gamma$</li>
+</ul>
+<p>得到线性系统：
+$$\mathbf{K}\mathbf{u} = \mathbf{f}$$
+<strong>Galerkin方法的数学性质</strong>：</p>
+<ul>
+<li><strong>最佳近似性</strong>：Galerkin解是真解在$V_h$中的最佳近似（在能量范数意义下）</li>
+<li><strong>对称性</strong>：如果原问题是自伴的，则刚度矩阵对称</li>
+<li><strong>正定性</strong>：对于椭圆型问题，刚度矩阵正定</li>
+</ul>
+<h3 id="314">3.1.4 试函数与测试函数</h3>
+<p>有限元方法的一个关键特征是使用具有局部支撑的分片多项式基函数。这些基函数的选择直接影响了方法的精度、稳定性和计算效率。</p>
+<p><strong>基函数的要求</strong>：</p>
+<ol>
+<li><strong>完备性</strong>：能够精确表示常数和线性函数（对于二阶PDE）</li>
+<li><strong>连续性</strong>：满足所需的连续性要求（$C^0$对于二阶PDE）</li>
+<li><strong>局部支撑</strong>：每个基函数只在少数单元上非零</li>
+<li><strong>插值性</strong>：$\phi_i(x_j) = \delta_{ij}$（Kronecker delta）</li>
+</ol>
+<p><strong>一维基函数</strong>：</p>
+<ol>
+<li><strong>线性基函数（帽子函数）</strong>：
+$$\phi_i(x) = \begin{cases}
+   \frac{x - x_{i-1}}{x_i - x_{i-1}} &amp; x_{i-1} \leq x \leq x_i \\
+   \frac{x_{i+1} - x}{x_{i+1} - x_i} &amp; x_i \leq x \leq x_{i+1} \\
+   0 &amp; \text{otherwise}
+   \end{cases}$$
+性质：</li>
+</ol>
+<ul>
+<li>在节点$x_i$处值为1，在其他节点处为0</li>
+<li>支撑域为$[x_{i-1}, x_{i+1}]$</li>
+<li>导数为分片常数</li>
+</ul>
+<ol start="2">
+<li>
+<p><strong>二次基函数</strong>：
+   需要在单元中点引入额外节点。对于标准单元$[-1, 1]$：
+$$N_1(\xi) = \frac{\xi(\xi-1)}{2}, \quad N_2(\xi) = 1-\xi^2, \quad N_3(\xi) = \frac{\xi(\xi+1)}{2}$$</p>
+</li>
+<li>
+<p><strong>Hermite基函数</strong>：
+   同时插值函数值和导数值，用于需要$C^1$连续的问题：
+$$H_i^0(x) = 1 - 3\xi^2 + 2\xi^3, \quad H_i^1(x) = \xi - 2\xi^2 + \xi^3$$
+其中$\xi = (x-x_i)/(x_{i+1}-x_i)$。</p>
+</li>
+</ol>
+<p><strong>二维基函数</strong>：</p>
+<ol>
+<li>
+<p><strong>三角形单元的线性基函数</strong>：
+   使用重心坐标$(L_1, L_2, L_3)$：
+$$\phi_i = L_i, \quad i = 1, 2, 3$$
+其中$L_i$是第$i$个重心坐标，满足$L_1 + L_2 + L_3 = 1$。</p>
+</li>
+<li>
+<p><strong>四边形单元的双线性基函数</strong>：
+   在参考单元$[-1,1]^2$上：
+$$N_i(\xi, \eta) = \frac{1}{4}(1 + \xi_i\xi)(1 + \eta_i\eta)$$
+其中$(\xi_i, \eta_i)$是角点坐标。</p>
+</li>
+</ol>
+<p><strong>p型与h型细化</strong>：</p>
+<ul>
+<li><strong>h型细化</strong>：减小单元尺寸$h$，保持多项式阶数$p$固定</li>
+<li><strong>p型细化</strong>：增加多项式阶数$p$，保持网格固定</li>
+<li><strong>hp型细化</strong>：同时调整$h$和$p$，达到指数收敛率</li>
+</ul>
+<p><strong>基函数的数值性质</strong>：</p>
+<ul>
+<li><strong>条件数</strong>：高阶基函数可能导致刚度矩阵条件数增大</li>
+<li><strong>稀疏性</strong>：局部支撑保证刚度矩阵稀疏</li>
+<li><strong>正交性</strong>：某些基函数（如Legendre多项式）具有正交性，改善数值性质</li>
+</ul>
+<h2 id="32">3.2 变形与弹性基础</h2>
+<p>连续介质力学是有限元仿真的理论基础。本节将介绍描述材料变形的基本概念，包括变形梯度、应变度量和应力张量，以及它们之间的关系。这些概念对于理解和实现非线性有限元至关重要。</p>
+<h3 id="321-f">3.2.1 变形梯度张量F</h3>
+<p>变形梯度张量$\mathbf{F}$是描述材料局部变形的最基本量，它建立了参考构型和当前构型之间的联系。</p>
+<p><strong>定义与几何意义</strong>：
+考虑一个连续体从参考构型（初始/未变形状态）到当前构型（变形后状态）的映射：
+$$\mathbf{x} = \boldsymbol{\chi}(\mathbf{X}, t)$$
+其中：</p>
+<ul>
+<li>$\mathbf{X} \in \Omega_0$：参考构型中的材料点位置</li>
+<li>$\mathbf{x} \in \Omega$：当前构型中的材料点位置</li>
+<li>$\boldsymbol{\chi}$：变形映射</li>
+<li>$t$：时间参数</li>
+</ul>
+<p>变形梯度定义为：
+$$\mathbf{F} = \frac{\partial \mathbf{x}}{\partial \mathbf{X}} = \frac{\partial \boldsymbol{\chi}}{\partial \mathbf{X}}$$
+在指标记号下：
+$$F_{ij} = \frac{\partial x_i}{\partial X_j}$$
+<strong>与位移的关系</strong>：
+引入位移场 $\mathbf{u}(\mathbf{X}, t) = \mathbf{x} - \mathbf{X}$，则：
+$$\mathbf{F} = \mathbf{I} + \frac{\partial \mathbf{u}}{\partial \mathbf{X}} = \mathbf{I} + \nabla_0 \mathbf{u}$$
+其中$\nabla_0$表示相对于参考坐标的梯度算子。</p>
+<p><strong>物理解释</strong>：
+变形梯度描述了材料线元的变形：</p>
+<ul>
+<li>参考构型中的线元：$d\mathbf{X}$</li>
+<li>当前构型中的线元：$d\mathbf{x} = \mathbf{F} d\mathbf{X}$</li>
+</ul>
+<p><strong>变形梯度的重要性质</strong>：</p>
+<ol>
+<li><strong>可逆性条件</strong>：
+$$J = \det(\mathbf{F}) &gt; 0$$
+$J$称为Jacobian或体积比，表示局部体积变化：</li>
+</ol>
+<ul>
+<li>$J &gt; 1$：体积膨胀</li>
+<li>$J &lt; 1$：体积压缩  </li>
+<li>$J = 1$：体积不变（不可压缩）</li>
+<li>$J \leq 0$：材料穿透或翻转（非物理）</li>
+</ul>
+<ol start="2">
+<li><strong>极分解</strong>：
+   任何可逆的变形梯度可以唯一分解为：
+$$\mathbf{F} = \mathbf{R}\mathbf{U} = \mathbf{V}\mathbf{R}$$
+其中：</li>
+</ol>
+<ul>
+<li>$\mathbf{R}$：旋转张量（正交张量）</li>
+<li>$\mathbf{U}$：右拉伸张量（对称正定）</li>
+<li>$\mathbf{V}$：左拉伸张量（对称正定）</li>
+</ul>
+<ol start="3">
+<li>
+<p><strong>客观性（框架不变性）</strong>：
+   在刚体运动下，变形梯度变换为：
+$$\mathbf{F}^* = \mathbf{Q}\mathbf{F}$$
+其中$\mathbf{Q}$是旋转张量。这要求本构关系必须满足客观性。</p>
+</li>
+<li>
+<p><strong>特殊变形模式</strong>：
+   - 刚体平移：$\mathbf{F} = \mathbf{I}$
+   - 刚体旋转：$\mathbf{F} = \mathbf{R}$（正交张量）
+   - 单轴拉伸：$\mathbf{F} = \text{diag}(\lambda, 1/\sqrt{\lambda}, 1/\sqrt{\lambda})$（不可压缩情况）
+   - 简单剪切：$\mathbf{F} = \mathbf{I} + \gamma \mathbf{e}_1 \otimes \mathbf{e}_2$</p>
+</li>
+</ol>
+<h3 id="322">3.2.2 格林应变与柯西应变</h3>
+<p>应变是描述变形程度的无量纲量。由于有限变形下应变的定义不唯一，我们需要了解各种应变度量及其适用场景。</p>
+<p><strong>为什么需要应变度量</strong>：
+变形梯度$\mathbf{F}$包含了刚体旋转，不是真正的应变度量。我们需要从$\mathbf{F}$中提取出纯变形信息。</p>
+<p><strong>右柯西-格林变形张量</strong>：
+$$\mathbf{C} = \mathbf{F}^T \mathbf{F}$$
+性质：</p>
+<ul>
+<li>对称张量：$\mathbf{C} = \mathbf{C}^T$</li>
+<li>客观性：在刚体旋转下不变</li>
+<li>主不变量：$I_1 = \text{tr}(\mathbf{C})$，$I_2 = \frac{1}{2}[(\text{tr}\mathbf{C})^2 - \text{tr}(\mathbf{C}^2)]$，$I_3 = \det(\mathbf{C}) = J^2$</li>
+</ul>
+<p><strong>格林-拉格朗日应变张量</strong>：
+$$\mathbf{E} = \frac{1}{2}(\mathbf{C} - \mathbf{I}) = \frac{1}{2}(\mathbf{F}^T \mathbf{F} - \mathbf{I})$$
+展开形式：
+$$\mathbf{E} = \frac{1}{2}(\nabla_0 \mathbf{u} + (\nabla_0 \mathbf{u})^T + (\nabla_0 \mathbf{u})^T \nabla_0 \mathbf{u})$$
+在小变形下（$||\nabla_0 \mathbf{u}|| \ll 1$），忽略二次项：
+$$\mathbf{E} \approx \boldsymbol{\epsilon} = \frac{1}{2}(\nabla_0 \mathbf{u} + (\nabla_0 \mathbf{u})^T)$$
+这就是工程应变（无穷小应变）。</p>
+<p><strong>其他常用应变度量</strong>：</p>
+<ol>
+<li>
+<p><strong>左柯西-格林变形张量</strong>：
+$$\mathbf{B} = \mathbf{F}\mathbf{F}^T$$
+在当前构型中度量变形。</p>
+</li>
+<li>
+<p><strong>Hencky应变（对数应变）</strong>：
+$$\mathbf{E}_H = \frac{1}{2}\ln(\mathbf{C}) = \ln(\mathbf{U})$$
+其中$\mathbf{U}$来自极分解$\mathbf{F} = \mathbf{R}\mathbf{U}$。</p>
+</li>
+</ol>
+<p>优点：</p>
+<ul>
+<li>对于单轴拉伸，$E_H = \ln(\lambda)$，具有可加性</li>
+<li>压缩和拉伸对称：$E_H(-\lambda) = -E_H(\lambda)$</li>
+</ul>
+<ol start="3">
+<li><strong>Almansi应变</strong>：
+$$\mathbf{e} = \frac{1}{2}(\mathbf{I} - \mathbf{B}^{-1})$$
+在当前构型中定义的应变度量。</li>
+</ol>
+<p><strong>主拉伸与主方向</strong>：
+对$\mathbf{C}$进行特征值分解：
+$$\mathbf{C} = \sum_{i=1}^3 \lambda_i^2 \mathbf{N}_i \otimes \mathbf{N}_i$$
+其中：</p>
+<ul>
+<li>$\lambda_i$：主拉伸比（$\mathbf{F}$的奇异值）</li>
+<li>$\mathbf{N}_i$：拉格朗日主方向</li>
+</ul>
+<p><strong>体积与等容变形分解</strong>：
+将变形梯度分解为体积和等容部分：
+$$\mathbf{F} = J^{1/3}\bar{\mathbf{F}}$$
+其中$\bar{\mathbf{F}} = J^{-1/3}\mathbf{F}$是等容变形梯度，满足$\det(\bar{\mathbf{F}}) = 1$。</p>
+<p>相应的等容右柯西-格林张量：
+$$\bar{\mathbf{C}} = \bar{\mathbf{F}}^T\bar{\mathbf{F}} = J^{-2/3}\mathbf{C}$$</p>
+<h3 id="323">3.2.3 应力张量</h3>
+<p>应力描述了材料内部的力分布。在有限变形下，有多种应力度量，每种都有其物理意义和应用场景。</p>
+<p><strong>应力的物理定义</strong>：
+考虑材料内部一个面元，其法向量为$\mathbf{n}$，作用在该面元上的力为$\mathbf{t}$（牵引力），则应力张量定义了它们之间的关系。</p>
+<p><strong>柯西应力张量（真实应力）</strong>：
+$$\mathbf{t} = \boldsymbol{\sigma} \mathbf{n}$$
+其中$\mathbf{t}$和$\mathbf{n}$都在当前构型中定义。柯西应力的物理意义：</p>
+<ul>
+<li>$\sigma_{ij}$：作用在法向为$\mathbf{e}_j$的面上，方向为$\mathbf{e}_i$的应力分量</li>
+<li>对称张量：$\boldsymbol{\sigma} = \boldsymbol{\sigma}^T$（角动量守恒）</li>
+<li>主应力：$\boldsymbol{\sigma}$的特征值</li>
+</ul>
+<p><strong>第一Piola-Kirchhoff应力（PK1，名义应力）</strong>：
+将当前构型的力与参考构型的面积关联：
+$$\mathbf{t}_0 = \mathbf{P} \mathbf{N}$$
+其中$\mathbf{N}$是参考构型中的法向量。</p>
+<p>与柯西应力的关系（Piola变换）：
+$$\mathbf{P} = J \boldsymbol{\sigma} \mathbf{F}^{-T}$$
+或反过来：
+$$\boldsymbol{\sigma} = \frac{1}{J} \mathbf{P} \mathbf{F}^T$$
+性质：</p>
+<ul>
+<li>非对称张量（一般情况下）</li>
+<li>功共轭于变形梯度：$\dot{W} = \mathbf{P} : \dot{\mathbf{F}}$</li>
+<li>从应变能导出：$\mathbf{P} = \frac{\partial \psi}{\partial \mathbf{F}}$</li>
+</ul>
+<p><strong>第二Piola-Kirchhoff应力（PK2）</strong>：
+完全在参考构型中定义的对称应力度量：
+$$\mathbf{S} = \mathbf{F}^{-1} \mathbf{P} = J \mathbf{F}^{-1} \boldsymbol{\sigma} \mathbf{F}^{-T}$$
+性质：</p>
+<ul>
+<li>对称张量：$\mathbf{S} = \mathbf{S}^T$</li>
+<li>功共轭于格林应变：$\dot{W} = \mathbf{S} : \dot{\mathbf{E}}$</li>
+<li>从应变能导出：$\mathbf{S} = 2\frac{\partial \psi}{\partial \mathbf{C}} = \frac{\partial \psi}{\partial \mathbf{E}}$</li>
+</ul>
+<p><strong>Kirchhoff应力</strong>：
+$$\boldsymbol{\tau} = J \boldsymbol{\sigma}$$
+在不可压缩材料中特别有用，因为$J = 1$时$\boldsymbol{\tau} = \boldsymbol{\sigma}$。</p>
+<p><strong>应力张量之间的转换关系总结</strong>：
+$$\begin{aligned}
+\boldsymbol{\sigma} &amp;= \frac{1}{J} \mathbf{P} \mathbf{F}^T = \frac{1}{J} \mathbf{F} \mathbf{S} \mathbf{F}^T \\
+\mathbf{P} &amp;= J \boldsymbol{\sigma} \mathbf{F}^{-T} = \mathbf{F} \mathbf{S} \\
+\mathbf{S} &amp;= J \mathbf{F}^{-1} \boldsymbol{\sigma} \mathbf{F}^{-T} = \mathbf{F}^{-1} \mathbf{P}
+\end{aligned}$$
+<strong>应力功率与共轭对</strong>：
+不同的应力-应变对计算的功率相同：
+$$\dot{W} = \boldsymbol{\sigma} : \mathbf{D} = \mathbf{P} : \dot{\mathbf{F}} = \mathbf{S} : \dot{\mathbf{E}} = \frac{1}{2}\mathbf{S} : \dot{\mathbf{C}}$$
+其中$\mathbf{D} = \frac{1}{2}(\mathbf{L} + \mathbf{L}^T)$是变形率张量，$\mathbf{L} = \dot{\mathbf{F}}\mathbf{F}^{-1}$是速度梯度。</p>
+<h3 id="324">3.2.4 本构关系与材料参数</h3>
+<p>本构关系描述了应力和应变之间的关系，是材料模型的核心。不同的材料需要不同的本构模型，从简单的线弹性到复杂的粘弹塑性。</p>
+<p><strong>线弹性本构关系</strong>：
+对于各向同性线弹性材料，在小应变下：
+$$\boldsymbol{\sigma} = \mathbf{C} : \boldsymbol{\epsilon}$$
+其中$\mathbf{C}$是四阶弹性张量。对于各向同性材料：
+$$\sigma_{ij} = \lambda \epsilon_{kk} \delta_{ij} + 2\mu \epsilon_{ij}$$
+或用矩阵形式（Voigt记号）：
+$$\begin{bmatrix}
+\sigma_{11} \\ \sigma_{22} \\ \sigma_{33} \\ \sigma_{23} \\ \sigma_{13} \\ \sigma_{12}
+\end{bmatrix} = \begin{bmatrix}
+\lambda + 2\mu &amp; \lambda &amp; \lambda &amp; 0 &amp; 0 &amp; 0 \\
+\lambda &amp; \lambda + 2\mu &amp; \lambda &amp; 0 &amp; 0 &amp; 0 \\
+\lambda &amp; \lambda &amp; \lambda + 2\mu &amp; 0 &amp; 0 &amp; 0 \\
+0 &amp; 0 &amp; 0 &amp; \mu &amp; 0 &amp; 0 \\
+0 &amp; 0 &amp; 0 &amp; 0 &amp; \mu &amp; 0 \\
+0 &amp; 0 &amp; 0 &amp; 0 &amp; 0 &amp; \mu
+\end{bmatrix} \begin{bmatrix}
+\epsilon_{11} \\ \epsilon_{22} \\ \epsilon_{33} \\ 2\epsilon_{23} \\ 2\epsilon_{13} \\ 2\epsilon_{12}
+\end{bmatrix}$$
+<strong>材料参数及其物理意义</strong>：</p>
+<ol>
+<li>
+<p><strong>杨氏模量（Young's modulus）E</strong>：
+   - 定义：单轴拉伸时应力与应变的比值
+   - 物理意义：材料的刚度
+   - 单位：Pa（帕斯卡）
+   - 典型值：钢材 200 GPa，橡胶 0.01-0.1 GPa</p>
+</li>
+<li>
+<p><strong>泊松比（Poisson's ratio）ν</strong>：
+   - 定义：横向应变与纵向应变的负比值
+   - 物理意义：材料的体积变化倾向
+   - 范围：$\nu \in [0, 0.5)$（热力学稳定性要求）
+   - 特殊值：</p>
+<ul>
+<li>$\nu = 0$：软木（无横向变形）</li>
+<li>$\nu \approx 0.5$：橡胶（近似不可压缩）</li>
+<li>$\nu \approx 0.3$：大多数金属</li>
+</ul>
+</li>
+<li>
+<p><strong>Lamé参数</strong>：
+$$\lambda = \frac{E\nu}{(1+\nu)(1-2\nu)}, \quad \mu = \frac{E}{2(1+\nu)}$$</p>
+</li>
+</ol>
+<ul>
+<li>$\lambda$：Lamé第一参数（无直接物理意义）</li>
+<li>$\mu$：剪切模量，也记作$G$</li>
+</ul>
+<ol start="4">
+<li><strong>体积模量（Bulk modulus）K</strong>：
+$$K = \frac{E}{3(1-2\nu)} = \lambda + \frac{2\mu}{3}$$</li>
+</ol>
+<ul>
+<li>物理意义：抵抗体积变化的能力</li>
+<li>当$\nu \to 0.5$时，$K \to \infty$（不可压缩）</li>
+</ul>
+<p><strong>参数之间的转换关系</strong>：
+给定任意两个独立参数，可以计算其他参数：
+$$\begin{aligned}
+E &amp;= \frac{9KG}{3K + G} = \frac{\mu(3\lambda + 2\mu)}{\lambda + \mu} \\
+\nu &amp;= \frac{3K - 2G}{2(3K + G)} = \frac{\lambda}{2(\lambda + \mu)} \\
+K &amp;= \frac{\lambda + 2\mu}{3} = \frac{E}{3(1-2\nu)} \\
+G &amp;= \mu = \frac{E}{2(1+\nu)} = \frac{3K(1-2\nu)}{2(1+\nu)}
+\end{aligned}$$
+<strong>材料稳定性要求</strong>：
+热力学第二定律要求应变能为正定，这导致：</p>
+<ul>
+<li>$E &gt; 0$（拉伸刚度为正）</li>
+<li>$G &gt; 0$（剪切刚度为正）</li>
+<li>$K &gt; 0$（体积刚度为正）</li>
+<li>$-1 &lt; \nu &lt; 0.5$（实际材料通常$\nu &gt; 0$）</li>
+</ul>
+<p><strong>各向异性材料</strong>：
+对于正交各向异性材料，需要9个独立参数：</p>
+<ul>
+<li>3个杨氏模量：$E_1, E_2, E_3$</li>
+<li>3个剪切模量：$G_{12}, G_{23}, G_{31}$</li>
+<li>3个泊松比：$\nu_{12}, \nu_{23}, \nu_{31}$</li>
+</ul>
+<p>对于一般各向异性材料，弹性张量$\mathbf{C}$有21个独立分量。</p>
+<h2 id="33">3.3 超弹性材料模型</h2>
+<h3 id="331">3.3.1 应变能密度函数</h3>
+<p>超弹性材料通过应变能密度函数$\psi(\mathbf{F})$完全描述其力学行为：
+$$\mathbf{P} = \frac{\partial \psi}{\partial \mathbf{F}}$$
+应变能密度函数必须满足：</p>
+<ul>
+<li><strong>客观性</strong>：$\psi(\mathbf{QF}) = \psi(\mathbf{F})$ 对所有旋转矩阵$\mathbf{Q}$</li>
+<li><strong>材料对称性</strong>：反映材料的各向同性或各向异性</li>
+<li><strong>凸性</strong>：保证材料稳定性</li>
+</ul>
+<h3 id="332-neo-hookean">3.3.2 Neo-Hookean模型</h3>
+<p>Neo-Hookean模型是最简单的超弹性模型，适用于橡胶类材料：
+$$\psi(\mathbf{F}) = \frac{\mu}{2}(\text{tr}(\mathbf{F}^T\mathbf{F}) - 3) - \mu \ln(J) + \frac{\lambda}{2}\ln^2(J)$$
+对应的第一Piola-Kirchhoff应力：
+$$\mathbf{P}(\mathbf{F}) = \mu(\mathbf{F} - \mathbf{F}^{-T}) + \lambda \ln(J) \mathbf{F}^{-T}$$
+Neo-Hookean模型的特点：</p>
+<ul>
+<li>在小变形下退化为线弹性</li>
+<li>可以处理大变形</li>
+<li>数学形式简单，计算效率高</li>
+</ul>
+<h3 id="333-corotated">3.3.3 Corotated模型</h3>
+<p>Corotated模型通过极分解处理大旋转：
+$$\mathbf{F} = \mathbf{R}\mathbf{S}$$
+其中$\mathbf{R}$是旋转部分，$\mathbf{S}$是拉伸部分。</p>
+<p>应变能密度函数：
+$$\psi(\mathbf{F}) = \mu \sum_i (\sigma_i - 1)^2 + \frac{\lambda}{2}(J - 1)^2$$
+其中$\sigma_i$是$\mathbf{F}$的奇异值。</p>
+<p>第一Piola-Kirchhoff应力：
+$$\mathbf{P}(\mathbf{F}) = 2\mu(\mathbf{F} - \mathbf{R}) + \lambda(J - 1)J\mathbf{F}^{-T}$$</p>
+<h3 id="334-mooney-rivlin">3.3.4 Mooney-Rivlin模型</h3>
+<p>Mooney-Rivlin模型用于更精确地描述橡胶材料：
+$$\psi = C_{10}(I_1 - 3) + C_{01}(I_2 - 3) + \frac{1}{D_1}(J - 1)^2$$
+其中：</p>
+<ul>
+<li>$I_1 = \text{tr}(\mathbf{C})$：第一不变量</li>
+<li>$I_2 = \frac{1}{2}[(\text{tr}(\mathbf{C}))^2 - \text{tr}(\mathbf{C}^2)]$：第二不变量</li>
+<li>$C_{10}, C_{01}, D_1$：材料参数</li>
+</ul>
+<h2 id="34">3.4 基于六面体网格的拉格朗日有限元</h2>
+<h3 id="341">3.4.1 等参单元与形函数</h3>
+<p>六面体单元使用三线性形函数，在参考坐标$(\xi, \eta, \zeta) \in [-1,1]^3$中：
+$$N_i(\xi, \eta, \zeta) = \frac{1}{8}(1 + \xi_i\xi)(1 + \eta_i\eta)(1 + \zeta_i\zeta)$$
+其中$(\xi_i, \eta_i, \zeta_i)$是第$i$个节点的参考坐标。</p>
+<p>几何映射（等参映射）：
+$$\mathbf{x} = \sum_{i=1}^8 N_i(\xi, \eta, \zeta) \mathbf{x}_i$$</p>
+<h3 id="342">3.4.2 数值积分</h3>
+<p>使用高斯积分计算单元矩阵：
+$$\mathbf{K}_e = \int_{\Omega_e} \mathbf{B}^T \mathbf{D} \mathbf{B} \, d\Omega \approx \sum_{g=1}^{n_g} w_g \mathbf{B}^T(\xi_g) \mathbf{D} \mathbf{B}(\xi_g) |\mathbf{J}(\xi_g)|$$
+其中：</p>
+<ul>
+<li>$n_g$：高斯点数（通常$2×2×2$）</li>
+<li>$w_g$：高斯权重</li>
+<li>$\mathbf{J}$：雅可比矩阵</li>
+</ul>
+<h3 id="343">3.4.3 单元刚度矩阵组装</h3>
+<p>每个六面体单元贡献一个$24×24$的单元刚度矩阵（3D情况，每节点3个自由度）：
+$$\mathbf{K} = \bigcup_{e=1}^{n_e} \mathbf{K}_e$$
+组装过程需要：</p>
+<ol>
+<li>计算每个单元的刚度矩阵</li>
+<li>根据节点编号映射到全局矩阵</li>
+<li>处理边界条件</li>
+</ol>
+<h3 id="344">3.4.4 边界条件处理</h3>
+<p><strong>Dirichlet边界条件</strong>（位移约束）：</p>
+<ul>
+<li>直接设置：$u_i = \bar{u}_i$</li>
+<li>罚函数法：添加大刚度$\alpha(u_i - \bar{u}_i)^2$</li>
+<li>拉格朗日乘子法：引入约束力</li>
+</ul>
+<p><strong>Neumann边界条件</strong>（力边界）：
+$$\mathbf{f}_i = \int_{\Gamma_N} N_i \mathbf{t} \, d\Gamma$$
+其中$\mathbf{t}$是表面力。</p>
+<h2 id="35">3.5 基于四面体网格的拉格朗日有限元</h2>
+<h3 id="351">3.5.1 线性四面体单元</h3>
+<p>对于线性四面体，变形梯度在单元内为常数：
+$$\mathbf{F} = \mathbf{D}_s \mathbf{D}_m^{-1}$$
+其中：</p>
+<ul>
+<li>$\mathbf{D}_s = [\mathbf{x}_1 - \mathbf{x}_4, \mathbf{x}_2 - \mathbf{x}_4, \mathbf{x}_3 - \mathbf{x}_4]$：变形边矩阵</li>
+<li>$\mathbf{D}_m = [\mathbf{X}_1 - \mathbf{X}_4, \mathbf{X}_2 - \mathbf{X}_4, \mathbf{X}_3 - \mathbf{X}_4]$：参考边矩阵</li>
+</ul>
+<h3 id="352">3.5.2 常应变假设</h3>
+<p>线性四面体单元假设应变在单元内均匀分布：</p>
+<ul>
+<li>优点：实现简单，适合大变形</li>
+<li>缺点：需要更多单元才能准确捕捉弯曲变形</li>
+<li>可能过于刚硬（过度约束）</li>
+</ul>
+<h3 id="353">3.5.3 体积锁定与缓解策略</h3>
+<p>当材料接近不可压缩（$\nu \to 0.5$）时，出现体积锁定现象：</p>
+<p><strong>原因</strong>：体积模量$K \to \infty$，数值误差被放大</p>
+<p><strong>缓解方法</strong>：</p>
+<ol>
+<li><strong>混合有限元</strong>：分别插值位移和压力</li>
+<li><strong>降阶积分</strong>：使用较少的积分点</li>
+<li><strong>F-bar方法</strong>：修正变形梯度的体积部分</li>
+<li><strong>增强应变元</strong>：添加额外的应变模式</li>
+</ol>
+<h3 id="354">3.5.4 网格生成与质量控制</h3>
+<p>高质量的四面体网格需要满足：</p>
+<ul>
+<li><strong>最小角度</strong>：避免过于尖锐的角度（建议&gt;15°）</li>
+<li><strong>纵横比</strong>：控制最长边与最短边的比值（建议&lt;10）</li>
+<li><strong>体积</strong>：避免退化的单元（体积接近0）</li>
+</ul>
+<p>常用网格生成方法：</p>
+<ul>
+<li>Delaunay三角剖分</li>
+<li>前沿推进法</li>
+<li>八叉树细分</li>
+</ul>
+<h2 id="36-invertible">3.6 可逆(Invertible)有限元</h2>
+<h3 id="361">3.6.1 单元翻转问题</h3>
+<p>当$\det(\mathbf{F}) \leq 0$时，单元发生翻转：</p>
+<ul>
+<li>物理上不合理（材料穿透自身）</li>
+<li>数值上导致发散（应力无穷大）</li>
+<li>仿真崩溃</li>
+</ul>
+<p>翻转通常发生在：</p>
+<ul>
+<li>大变形情况</li>
+<li>碰撞处理</li>
+<li>不当的时间步长</li>
+</ul>
+<h3 id="362-svd">3.6.2 SVD分解与修复</h3>
+<p>使用奇异值分解(SVD)检测和修复翻转：
+$$\mathbf{F} = \mathbf{U}\boldsymbol{\Sigma}\mathbf{V}^T$$
+修复步骤：</p>
+<ol>
+<li>计算SVD</li>
+<li>检查$\det(\mathbf{U})$和$\det(\mathbf{V})$的符号</li>
+<li>如果为负，翻转相应的列</li>
+<li>确保所有奇异值为正</li>
+</ol>
+<h3 id="363">3.6.3 能量势垒方法</h3>
+<p>在应变能中添加势垒项防止翻转：
+$$\psi_{barrier}(J) = \begin{cases}
+0 &amp; J &gt; \epsilon \\
+\alpha(J - \epsilon)^2 &amp; J \leq \epsilon
+\end{cases}$$
+其中$\epsilon$是小的正数（如0.01）。</p>
+<h3 id="364">3.6.4 稳定性保证</h3>
+<p>确保数值稳定的技术：</p>
+<ol>
+<li><strong>投影方法</strong>：将$\mathbf{F}$投影到可行域</li>
+<li><strong>线搜索</strong>：在Newton迭代中使用线搜索</li>
+<li><strong>自适应时间步</strong>：检测到接近翻转时减小时间步</li>
+<li><strong>隐式积分</strong>：提高大变形下的稳定性</li>
+</ol>
+<h2 id="37">3.7 拓扑优化</h2>
+<h3 id="371">3.7.1 最小柔度问题</h3>
+<p>拓扑优化的标准形式：
+$$\begin{aligned}
+\min_{\boldsymbol{\rho}} \quad &amp; c(\boldsymbol{\rho}) = \mathbf{u}^T \mathbf{K}(\boldsymbol{\rho}) \mathbf{u} \\
+\text{s.t.} \quad &amp; \mathbf{K}(\boldsymbol{\rho})\mathbf{u} = \mathbf{f} \\
+&amp; \sum_{e=1}^{n_e} v_e \rho_e \leq V_{max} \\
+&amp; 0 &lt; \rho_{min} \leq \rho_e \leq 1
+\end{aligned}$$
+其中：</p>
+<ul>
+<li>$\rho_e$：单元$e$的密度</li>
+<li>$c$：结构柔度（compliance）</li>
+<li>$V_{max}$：材料体积约束</li>
+</ul>
+<h3 id="372-simp">3.7.2 SIMP方法</h3>
+<p>固体各向同性材料惩罚(SIMP)方法：
+$$E_e(\rho_e) = \rho_e^p E_0$$
+其中：</p>
+<ul>
+<li>$p$：惩罚参数（通常$p=3$）</li>
+<li>$E_0$：实体材料的杨氏模量</li>
+</ul>
+<p>惩罚中间密度，推动设计向0-1分布。</p>
+<h3 id="373">3.7.3 敏感度分析</h3>
+<p>目标函数对设计变量的导数：
+$$\frac{\partial c}{\partial \rho_e} = -p\rho_e^{p-1} \mathbf{u}_e^T \mathbf{k}_0 \mathbf{u}_e$$
+其中$\mathbf{k}_0$是密度为1时的单元刚度矩阵。</p>
+<p>敏感度滤波（避免棋盘格）：
+$$\frac{\widetilde{\partial c}}{\partial \rho_e} = \frac{\sum_{i \in N_e} H_{ei} \rho_i \frac{\partial c}{\partial \rho_i}}{\rho_e \sum_{i \in N_e} H_{ei}}$$</p>
+<h3 id="374-oc">3.7.4 优化准则法(OC)</h3>
+<p>基于最优性条件的更新公式：
+$$\rho_e^{new} = \begin{cases}
+\max(\rho_{min}, \rho_e - m) &amp; \text{if } \rho_e B_e^{\eta} \leq \max(\rho_{min}, \rho_e - m) \\
+\min(1, \rho_e + m) &amp; \text{if } \rho_e B_e^{\eta} \geq \min(1, \rho_e + m) \\
+\rho_e B_e^{\eta} &amp; \text{otherwise}
+\end{cases}$$
+其中：</p>
+<ul>
+<li>$B_e = -\frac{\partial c/\partial \rho_e}{\lambda \frac{\partial V/\partial \rho_e}}$</li>
+<li>$\lambda$：拉格朗日乘子（通过二分法确定）</li>
+<li>$m$：移动限制（如0.2）</li>
+<li>$\eta$：阻尼系数（如0.5）</li>
+</ul>
+<h2 id="38-taichi1">3.8 高级Taichi特性（1）</h2>
+<h3 id="381">3.8.1 可微编程基础</h3>
+<p>Taichi支持自动微分，使物理仿真可微：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">data_oriented</span>
+<span class="k">class</span> <span class="nc">ElasticBody</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="n">n_verts</span><span class="p">,</span> <span class="n">needs_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">v</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="n">n_verts</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">f</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="n">n_verts</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">U</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(),</span> <span class="n">needs_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># 势能</span>
+</code></pre></div>
+
+<h3 id="382">3.8.2 自动微分</h3>
+<p>Taichi提供前向和反向自动微分：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">with</span> <span class="n">ti</span><span class="o">.</span><span class="n">Tape</span><span class="p">(</span><span class="n">loss</span><span class="p">):</span>
+    <span class="n">forward_simulation</span><span class="p">()</span>
+<span class="c1"># 梯度自动计算在 x.grad 中</span>
+</code></pre></div>
+
+<p>关键特性：</p>
+<ul>
+<li>支持复杂控制流</li>
+<li>高效的梯度累积</li>
+<li>与并行计算兼容</li>
+</ul>
+<h3 id="383">3.8.3 梯度计算与优化</h3>
+<p>利用自动微分进行参数优化：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">kernel</span>
+<span class="k">def</span> <span class="nf">compute_loss</span><span class="p">():</span>
+    <span class="c1"># 计算目标函数</span>
+    <span class="n">loss</span><span class="p">[</span><span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_verts</span><span class="p">):</span>
+        <span class="n">loss</span><span class="p">[</span><span class="kc">None</span><span class="p">]</span> <span class="o">+=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">target</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="o">.</span><span class="n">norm_sqr</span><span class="p">()</span>
+
+<span class="c1"># 优化循环</span>
+<span class="k">for</span> <span class="nb">iter</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iters</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">ti</span><span class="o">.</span><span class="n">Tape</span><span class="p">(</span><span class="n">loss</span><span class="p">):</span>
+        <span class="n">simulate</span><span class="p">()</span>
+        <span class="n">compute_loss</span><span class="p">()</span>
+
+    <span class="c1"># 更新参数</span>
+    <span class="n">lr</span> <span class="o">=</span> <span class="mf">0.01</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_params</span><span class="p">):</span>
+        <span class="n">params</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-=</span> <span class="n">lr</span> <span class="o">*</span> <span class="n">params</span><span class="o">.</span><span class="n">grad</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+</code></pre></div>
+
+<h3 id="384">3.8.4 物理过程的端到端优化</h3>
+<p>自动微分使得端到端优化成为可能：</p>
+<p><strong>应用场景</strong>：</p>
+<ol>
+<li><strong>材料参数识别</strong>：从观测数据反推材料属性</li>
+<li><strong>形状优化</strong>：优化结构形状以满足性能要求</li>
+<li><strong>控制优化</strong>：设计最优控制序列</li>
+<li><strong>逆向设计</strong>：从目标性能设计材料分布</li>
+</ol>
+<p><strong>优势</strong>：</p>
+<ul>
+<li>无需手动推导梯度</li>
+<li>支持复杂的物理模型</li>
+<li>与神经网络无缝集成</li>
+</ul>
+<hr />
+<h2 id="_1">本章小结</h2>
+<p>本章深入介绍了有限元方法的理论基础和实现技术：</p>
+<p><strong>核心概念</strong>：</p>
+<ul>
+<li>弱形式将PDE转化为积分方程，降低对解的光滑性要求</li>
+<li>变形梯度$\mathbf{F}$描述了材料的局部变形</li>
+<li>超弹性材料通过应变能密度函数定义本构关系</li>
+<li>不同网格类型（六面体、四面体）各有优劣</li>
+</ul>
+<p><strong>关键公式</strong>：</p>
+<ul>
+<li>弱形式：$\int_\Omega \nabla w \cdot \nabla u \, d\Omega = \int_\Omega wf \, d\Omega$</li>
+<li>Neo-Hookean应力：$\mathbf{P} = \mu(\mathbf{F} - \mathbf{F}^{-T}) + \lambda \ln(J) \mathbf{F}^{-T}$</li>
+<li>SIMP插值：$E(\rho) = \rho^p E_0$</li>
+</ul>
+<p><strong>实践要点</strong>：</p>
+<ul>
+<li>选择合适的材料模型和单元类型</li>
+<li>处理数值不稳定性（翻转、锁定）</li>
+<li>利用自动微分进行优化设计</li>
+</ul>
+<hr />
+<h2 id="_2">练习题</h2>
+<h3 id="_3">基础题</h3>
+<p><strong>习题3.1</strong> 推导一维杆的弱形式。给定强形式：
+$$-\frac{d}{dx}\left(EA\frac{du}{dx}\right) = f(x), \quad 0 &lt; x &lt; L$$
+其中$E$是杨氏模量，$A$是横截面积，$f(x)$是分布载荷。</p>
+<details>
+<summary>提示</summary>
+<p>乘以测试函数$w(x)$并在区间$[0,L]$上积分，然后使用分部积分。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>弱形式为：
+$$\int_0^L EA\frac{dw}{dx}\frac{du}{dx}dx = \int_0^L wf dx + [wEA\frac{du}{dx}]_0^L$$
+如果$w(0)=w(L)=0$（本质边界条件），则边界项消失。</p>
+</details>
+<p><strong>习题3.2</strong> 给定二维变形梯度：
+$$\mathbf{F} = \begin{bmatrix} 1.2 &amp; 0.3 \\ 0.1 &amp; 0.8 \end{bmatrix}$$
+计算：(a) 体积比$J$ (b) 右柯西-格林张量$\mathbf{C}$ (c) 格林应变$\mathbf{E}$</p>
+<details>
+<summary>提示</summary>
+<p>$J = \det(\mathbf{F})$，$\mathbf{C} = \mathbf{F}^T\mathbf{F}$，$\mathbf{E} = \frac{1}{2}(\mathbf{C} - \mathbf{I})$</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>(a) $J = 1.2 \times 0.8 - 0.3 \times 0.1 = 0.96 - 0.03 = 0.93$</p>
+<p>(b) $\mathbf{C} = \begin{bmatrix} 1.2 &amp; 0.1 \\ 0.3 &amp; 0.8 \end{bmatrix} \begin{bmatrix} 1.2 &amp; 0.3 \\ 0.1 &amp; 0.8 \end{bmatrix} = \begin{bmatrix} 1.45 &amp; 0.44 \\ 0.44 &amp; 0.73 \end{bmatrix}$</p>
+<p>(c) $\mathbf{E} = \frac{1}{2}\begin{bmatrix} 0.45 &amp; 0.44 \\ 0.44 &amp; -0.27 \end{bmatrix}$</p>
+</details>
+<p><strong>习题3.3</strong> 对于Neo-Hookean材料，证明在小变形极限下（$\mathbf{F} = \mathbf{I} + \boldsymbol{\epsilon}$，$||\boldsymbol{\epsilon}|| \ll 1$），第一Piola-Kirchhoff应力退化为线弹性。</p>
+<details>
+<summary>提示</summary>
+<p>将$\mathbf{F} = \mathbf{I} + \boldsymbol{\epsilon}$代入Neo-Hookean应力公式，使用泰勒展开。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>$\ln(J) \approx \text{tr}(\boldsymbol{\epsilon})$，$\mathbf{F}^{-T} \approx \mathbf{I} - \boldsymbol{\epsilon}^T$</p>
+<p>因此：
+$$\mathbf{P} \approx \mu(\boldsymbol{\epsilon} + \boldsymbol{\epsilon}^T) + \lambda\text{tr}(\boldsymbol{\epsilon})\mathbf{I}$$
+这正是线弹性的应力-应变关系。</p>
+</details>
+<h3 id="_4">挑战题</h3>
+<p><strong>习题3.4</strong> 设计一个算法检测四面体单元是否接近翻转，并提出一个修复策略。考虑数值稳定性和计算效率。</p>
+<details>
+<summary>提示</summary>
+<p>监控$\det(\mathbf{F})$的值，当它接近0时采取行动。可以使用SVD或特征值分解。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>算法步骤：</p>
+<ol>
+<li>计算$J = \det(\mathbf{F})$</li>
+<li>如果$J &lt; \epsilon$（如0.1）：
+   - 计算SVD：$\mathbf{F} = \mathbf{U}\boldsymbol{\Sigma}\mathbf{V}^T$
+   - 修正奇异值：$\tilde{\sigma}_i = \max(\sigma_i, \epsilon)$
+   - 重构：$\tilde{\mathbf{F}} = \mathbf{U}\tilde{\boldsymbol{\Sigma}}\mathbf{V}^T$</li>
+<li>使用线搜索：$\mathbf{F}_{new} = \alpha\tilde{\mathbf{F}} + (1-\alpha)\mathbf{F}_{old}$</li>
+<li>选择$\alpha$使得$\det(\mathbf{F}_{new}) &gt; \epsilon$</li>
+</ol>
+</details>
+<p><strong>习题3.5</strong> 推导SIMP方法中体积约束的拉格朗日乘子$\lambda$的更新公式。使用KKT条件。</p>
+<details>
+<summary>提示</summary>
+<p>写出拉格朗日函数，对$\rho_e$和$\lambda$分别求导，利用互补松弛条件。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>拉格朗日函数：
+$$L = c(\boldsymbol{\rho}) + \lambda(\sum_e v_e\rho_e - V_{max})$$
+KKT条件给出：
+$$\frac{\partial c}{\partial \rho_e} + \lambda v_e = 0$$</p>
+<p>这导出$B_e = -\frac{\partial c/\partial \rho_e}{\lambda v_e}$。$\lambda$通过二分法确定，使得体积约束满足。</p>
+</details>
+<p><strong>习题3.6</strong> 考虑一个2D悬臂梁拓扑优化问题。梁长$L=2$，高$H=1$，左端固定，右端中点受向下的集中力$F=1$。材料体积限制为30%。设计一个完整的优化流程，包括敏感度滤波和收敛准则。</p>
+<details>
+<summary>提示</summary>
+<p>使用88行拓扑优化代码的框架，注意边界条件的正确施加。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>优化流程：</p>
+<ol>
+<li>初始化：$\rho_e = 0.3$（满足体积约束）</li>
+<li>迭代：
+   - FE分析：求解$\mathbf{K}\mathbf{u} = \mathbf{f}$
+   - 计算目标函数：$c = \mathbf{f}^T\mathbf{u}$
+   - 敏感度分析：$\frac{\partial c}{\partial \rho_e} = -p\rho_e^{p-1}\mathbf{u}_e^T\mathbf{k}_0\mathbf{u}_e$
+   - 敏感度滤波（半径$r_{min}=0.04$）
+   - OC更新</li>
+<li>收敛判断：$\max|\rho_e^{new} - \rho_e^{old}| &lt; 0.01$</li>
+</ol>
+<p>典型结果：类似拱桥的结构，材料集中在受拉和受压的主要路径上。</p>
+</details>
+<p><strong>习题3.7</strong> 实现一个简单的可微有限元求解器，用于优化悬臂梁的材料分布以最小化末端位移。使用自动微分计算梯度。</p>
+<details>
+<summary>提示</summary>
+<p>使用Taichi的自动微分功能，定义前向仿真和损失函数，然后用梯度下降优化。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>关键步骤：</p>
+<ol>
+<li>定义可微变量：<code>density = ti.field(ti.f32, shape=(nx, ny), needs_grad=True)</code></li>
+<li>前向仿真：组装刚度矩阵，求解位移</li>
+<li>损失函数：<code>loss = u_tip ** 2</code></li>
+<li>优化循环：</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="k">for</span> <span class="nb">iter</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">ti</span><span class="o">.</span><span class="n">Tape</span><span class="p">(</span><span class="n">loss</span><span class="p">):</span>
+        <span class="n">assemble_K</span><span class="p">()</span>
+        <span class="n">solve_system</span><span class="p">()</span>
+        <span class="n">compute_loss</span><span class="p">()</span>
+
+    <span class="c1"># 梯度下降</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">density</span><span class="p">:</span>
+        <span class="n">density</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">-=</span> <span class="n">lr</span> <span class="o">*</span> <span class="n">density</span><span class="o">.</span><span class="n">grad</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span>
+        <span class="n">density</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">clamp</span><span class="p">(</span><span class="n">density</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">],</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+</code></pre></div>
+
+</details>
+<p><strong>习题3.8</strong> 分析并比较六面体单元和四面体单元在以下情况下的性能：(a) 弯曲主导的变形 (b) 近似不可压缩材料 (c) 大旋转变形。讨论各自的优缺点和适用场景。</p>
+<details>
+<summary>提示</summary>
+<p>考虑单元的插值阶数、积分点数量、体积锁定倾向等因素。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>比较分析：</p>
+<p>(a) <strong>弯曲主导变形</strong>：</p>
+<ul>
+<li>六面体：8节点三线性插值，能较好捕捉弯曲</li>
+<li>四面体：线性插值，需要更多单元，可能过刚</li>
+<li>结论：六面体更适合</li>
+</ul>
+<p>(b) <strong>近似不可压缩材料</strong>：</p>
+<ul>
+<li>六面体：容易体积锁定，需要特殊技术（B-bar、降阶积分）</li>
+<li>四面体：同样有锁定问题，但更容易实现混合公式</li>
+<li>结论：都需要特殊处理，四面体实现更简单</li>
+</ul>
+<p>(c) <strong>大旋转变形</strong>：</p>
+<ul>
+<li>六面体：可能出现沙漏模式，需要沙漏控制</li>
+<li>四面体：常应变假设下表现稳定</li>
+<li>结论：四面体更稳健，但可能过刚</li>
+</ul>
+<p>总体建议：</p>
+<ul>
+<li>规则几何、精度要求高：六面体</li>
+<li>复杂几何、大变形：四面体</li>
+<li>混合网格：结合两者优势</li>
+</ul>
+</details>
+<hr />
+<h2 id="gotchas">常见陷阱与错误 (Gotchas)</h2>
+<ol>
+<li><strong>单元翻转</strong>：大变形时忘记检查$\det(\mathbf{F}) &gt; 0$，导致仿真爆炸</li>
+<li><strong>体积锁定</strong>：对近似不可压缩材料使用完全积分，导致过度刚硬</li>
+<li><strong>数值积分阶数</strong>：积分阶数过低导致秩缺陷，过高导致锁定</li>
+<li><strong>材料参数</strong>：泊松比接近0.5时数值不稳定，需要特殊处理</li>
+<li><strong>网格质量</strong>：忽视网格质量检查，退化单元导致矩阵奇异</li>
+<li><strong>边界条件</strong>：Dirichlet和Neumann边界条件混淆，导致错误结果</li>
+<li><strong>应力度量</strong>：混淆不同应力张量（PK1、PK2、Cauchy），导致错误的本构实现</li>
+<li><strong>优化收敛</strong>：拓扑优化中忽略敏感度滤波，出现棋盘格现象</li>
+</ol>
+<hr />
+<h2 id="_5">最佳实践检查清单</h2>
+<h3 id="_6">有限元实现</h3>
+<ul>
+<li>[ ] 验证单个单元的刚度矩阵对称性</li>
+<li>[ ] 检查组装后的全局矩阵是否满足预期的性质（对称、正定）</li>
+<li>[ ] 实现patch test验证收敛性</li>
+<li>[ ] 监控能量守恒（对于保守系统）</li>
+<li>[ ] 检查单元质量指标</li>
+</ul>
+<h3 id="_7">材料模型</h3>
+<ul>
+<li>[ ] 验证小变形极限下退化为线弹性</li>
+<li>[ ] 检查应力-应变曲线的物理合理性</li>
+<li>[ ] 测试各向同性材料的旋转不变性</li>
+<li>[ ] 验证能量函数的凸性</li>
+</ul>
+<h3 id="_8">数值稳定性</h3>
+<ul>
+<li>[ ] 实现单元翻转检测和修复</li>
+<li>[ ] 对不可压缩材料使用适当的公式</li>
+<li>[ ] 选择合适的时间积分方案</li>
+<li>[ ] 实现自适应时间步长控制</li>
+</ul>
+<h3 id="_9">优化设计</h3>
+<ul>
+<li>[ ] 使用体积约束确保可制造性</li>
+<li>[ ] 应用敏感度滤波避免数值不稳定</li>
+<li>[ ] 设置合理的收敛准则</li>
+<li>[ ] 验证梯度计算的正确性（有限差分检验）</li>
+</ul>
+<h3 id="_10">性能优化</h3>
+<ul>
+<li>[ ] 利用单元矩阵的对称性减少计算</li>
+<li>[ ] 使用稀疏矩阵存储和求解器</li>
+<li>[ ] 实现并行化（单元级并行）</li>
+<li>[ ] 考虑使用自适应网格细化
+</content>
+</invoke></li>
+</ul>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter2.html" class="nav-link prev">← 第二章：拉格朗日视角（1）</a><a href="./chapter4.html" class="nav-link next">第四章：欧拉视角（1） →</a></nav>
+        </main>
+    </div>
+</body>
+</html>

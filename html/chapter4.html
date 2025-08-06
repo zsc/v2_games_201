@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第四章：欧拉视角（1）</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">高级物理引擎实战教程</a></li><li class=""><a href="./chapter1.html">第一章：导论</a></li><li class=""><a href="./chapter2.html">第二章：拉格朗日视角（1）</a></li><li class=""><a href="./chapter3.html">第三章：拉格朗日视角（2）：有限元仿真</a></li><li class="active"><a href="./chapter4.html">第四章：欧拉视角（1）</a></li><li class=""><a href="./chapter5.html">第五章：欧拉视角（2）：线性系统求解器</a></li><li class=""><a href="./chapter6.html">第六章：高级输送格式与等势面方法</a></li><li class=""><a href="./chapter7.html">第七章：混合欧拉-拉格朗日视角（1）</a></li><li class=""><a href="./chapter8.html">第八章：混合欧拉-拉格朗日视角（2）：物质点法</a></li><li class=""><a href="./chapter9.html">第九章：高性能计算</a></li><li class=""><a href="./chapter10.html">第十章：可微编程与机器学习</a></li><li class=""><a href="./chapter8b.html">第八章：多重网格方法</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li><li class=""><a href="./old.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <h1 id="1">第四章：欧拉视角（1）</h1>
+<p>本章我们将从拉格朗日视角转向欧拉视角，探讨基于网格的流体仿真方法。欧拉方法在处理大变形流动、自由表面追踪和不可压缩性约束方面具有独特优势。我们将深入理解Navier-Stokes方程的数值求解，掌握压力投影法的核心思想，并学习如何处理各种边界条件。</p>
+<h2 id="41-vs">4.1 欧拉vs拉格朗日描述</h2>
+<h3 id="411">4.1.1 物质导数与对流项</h3>
+<p>在流体力学中，我们需要追踪流体质点的物理量变化。欧拉视角下，我们在固定的空间位置观察流体，这导致了物质导数的出现：</p>
+<p>$$\frac{D}{Dt} = \frac{\partial}{\partial t} + \mathbf{u} \cdot \nabla$$
+其中第一项 $\frac{\partial}{\partial t}$ 是局部时间导数，表示固定位置处物理量的时间变化率；第二项 $\mathbf{u} \cdot \nabla$ 是对流项，表示由于流体运动导致的物理量变化。</p>
+<p><strong>物质导数的物理意义</strong>：考虑一个流体质点沿轨迹 $\mathbf{x}(t)$ 运动，其携带的物理量 $\phi$ 的变化率为：
+$$\frac{d\phi}{dt} = \frac{\partial \phi}{\partial t} + \frac{\partial \phi}{\partial x_i}\frac{dx_i}{dt} = \frac{\partial \phi}{\partial t} + u_i\frac{\partial \phi}{\partial x_i}$$
+这里使用了爱因斯坦求和约定。物质导数连接了拉格朗日描述（跟随质点）和欧拉描述（固定空间点）。</p>
+<p>例如，对于速度场的物质导数：
+$$\frac{D\mathbf{u}}{Dt} = \frac{\partial \mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\mathbf{u}$$
+展开对流项的分量形式（以2D为例）：
+$$(\mathbf{u} \cdot \nabla)\mathbf{u} = \begin{pmatrix} u\frac{\partial u}{\partial x} + v\frac{\partial u}{\partial y} \\ u\frac{\partial v}{\partial x} + v\frac{\partial v}{\partial y} \end{pmatrix}$$
+这个对流项 $(\mathbf{u} \cdot \nabla)\mathbf{u}$ 是非线性的，也是Navier-Stokes方程数值求解的主要挑战之一。它导致了湍流等复杂现象的产生。</p>
+<p><strong>对流项的另一种理解</strong>：使用向量恒等式，对流项可以改写为：
+$$(\mathbf{u} \cdot \nabla)\mathbf{u} = \nabla(\frac{|\mathbf{u}|^2}{2}) - \mathbf{u} \times (\nabla \times \mathbf{u})$$
+第一项是动能梯度，第二项包含涡量 $\boldsymbol{\omega} = \nabla \times \mathbf{u}$，体现了旋转效应对动量输送的影响。</p>
+<h3 id="412-navier-stokes">4.1.2 不可压Navier-Stokes方程</h3>
+<p>不可压缩流体的运动由Navier-Stokes方程描述：
+$$\rho \frac{D\mathbf{u}}{Dt} = -\nabla p + \mu \nabla^2 \mathbf{u} + \rho \mathbf{g}$$
+配合不可压缩条件：
+$$\nabla \cdot \mathbf{u} = 0$$
+其中：</p>
+<ul>
+<li>$\rho$ 是流体密度（对于不可压流体为常数）</li>
+<li>$p$ 是压力（实际上是压力除以密度，有压力势的量纲）</li>
+<li>$\mu$ 是动力粘度</li>
+<li>$\nu = \mu/\rho$ 是运动粘度</li>
+<li>$\mathbf{g}$ 是重力加速度</li>
+</ul>
+<p>展开物质导数后，动量方程变为：
+$$\rho \left(\frac{\partial \mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\mathbf{u}\right) = -\nabla p + \mu \nabla^2 \mathbf{u} + \rho \mathbf{g}$$
+<strong>无量纲化与Reynolds数</strong>：通过特征尺度 $L$、特征速度 $U$ 和特征时间 $L/U$ 无量纲化，可得：
+$$\frac{\partial \mathbf{u}^*}{\partial t^*} + (\mathbf{u}^* \cdot \nabla^*)\mathbf{u}^* = -\nabla^* p^* + \frac{1}{Re} \nabla^{*2} \mathbf{u}^* + \frac{1}{Fr^2}\hat{\mathbf{g}}$$
+其中 Reynolds数 $Re = \frac{UL}{\nu}$ 表征惯性力与粘性力之比，Froude数 $Fr = \frac{U}{\sqrt{gL}}$ 表征惯性力与重力之比。</p>
+<p><strong>压力的作用</strong>：在不可压缩流中，压力不是状态变量，而是一个拉格朗日乘子，用于强制满足不可压缩约束。压力瞬时调整以维持 $\nabla \cdot \mathbf{u} = 0$。</p>
+<p><strong>涡量形式</strong>：取动量方程的旋度，可得涡量输送方程：
+$$\frac{D\boldsymbol{\omega}}{Dt} = (\boldsymbol{\omega} \cdot \nabla)\mathbf{u} + \nu \nabla^2 \boldsymbol{\omega}$$
+在2D情况下，涡量拉伸项 $(\boldsymbol{\omega} \cdot \nabla)\mathbf{u}$ 消失，涡量仅通过对流和扩散演化。</p>
+<h3 id="413">4.1.3 算子分裂方法</h3>
+<p>直接求解耦合的速度-压力系统非常困难。Chorin和Temam提出的算子分裂方法将Navier-Stokes方程分解为几个子步骤：</p>
+<ol>
+<li><strong>对流步</strong>：求解 $\frac{\partial \mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\mathbf{u} = 0$</li>
+<li><strong>外力步</strong>：添加重力和粘性力 $\frac{\partial \mathbf{u}}{\partial t} = \nu \nabla^2 \mathbf{u} + \mathbf{g}$</li>
+<li><strong>投影步</strong>：通过压力投影使速度场满足不可压缩条件</li>
+</ol>
+<p><strong>数学基础</strong>：算子分裂基于Trotter-Lie公式。对于方程 $\frac{\partial u}{\partial t} = (A + B)u$，其解可以近似为：
+$$u(t + \Delta t) \approx e^{\Delta t B} e^{\Delta t A} u(t) + O(\Delta t^2)$$
+这是一阶分裂。二阶Strang分裂为：
+$$u(t + \Delta t) \approx e^{\Delta t B/2} e^{\Delta t A} e^{\Delta t B/2} u(t) + O(\Delta t^3)$$
+<strong>具体算法步骤</strong>：</p>
+<ol>
+<li>
+<p><strong>预测步</strong>（忽略压力）：
+$$\mathbf{u}^* = \mathbf{u}^n + \Delta t \left[ -(\mathbf{u}^n \cdot \nabla)\mathbf{u}^n + \nu \nabla^2 \mathbf{u}^n + \mathbf{g} \right]$$</p>
+</li>
+<li>
+<p><strong>压力求解</strong>：
+$$\nabla^2 p^{n+1} = \frac{\rho}{\Delta t} \nabla \cdot \mathbf{u}^*$$</p>
+</li>
+<li>
+<p><strong>速度修正</strong>：
+$$\mathbf{u}^{n+1} = \mathbf{u}^* - \frac{\Delta t}{\rho} \nabla p^{n+1}$$
+这种分裂使得每个子问题都可以高效求解。在Taichi中，典型的实现框架如下：</p>
+</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">kernel</span>
+<span class="k">def</span> <span class="nf">step</span><span class="p">():</span>
+    <span class="n">advect_velocity</span><span class="p">()</span>      <span class="c1"># 对流步</span>
+    <span class="n">apply_external_forces</span><span class="p">()</span> <span class="c1"># 外力步  </span>
+    <span class="n">project_velocity</span><span class="p">()</span>      <span class="c1"># 投影步</span>
+    <span class="n">advect_other_quantities</span><span class="p">()</span> <span class="c1"># 输送其他物理量</span>
+</code></pre></div>
+
+<p><strong>分裂误差分析</strong>：算子分裂引入的误差主要来自于忽略了各项之间的耦合。例如，压力梯度实际上会影响对流，但在分裂方法中这种影响被延迟到投影步。这种误差通常是 $O(\Delta t)$，但可以通过高阶分裂方案减小。</p>
+<h3 id="414-cfl">4.1.4 稳定性与CFL条件</h3>
+<p>显式时间积分的稳定性受CFL（Courant-Friedrichs-Lewy）条件限制：
+$$\Delta t \leq C \frac{\Delta x}{|\mathbf{u}|_{\max}}$$
+其中 $C$ 是CFL数，通常取0.5-1.0。这个条件确保在一个时间步内，流体粒子移动的距离不超过一个网格单元。</p>
+<p><strong>CFL条件的推导</strong>：考虑一维线性对流方程 $\frac{\partial u}{\partial t} + c\frac{\partial u}{\partial x} = 0$，使用前向时间、中心空间差分：
+$$\frac{u_i^{n+1} - u_i^n}{\Delta t} + c\frac{u_{i+1}^n - u_{i-1}^n}{2\Delta x} = 0$$
+通过von Neumann稳定性分析，代入 $u_i^n = \hat{u}^n e^{ik_xi\Delta x}$，可得放大因子：
+$$G = 1 - i\nu \sin(k\Delta x)$$
+其中 $\nu = c\Delta t/\Delta x$ 是CFL数。稳定性要求 $|G| \leq 1$，但对于中心差分这永远无法满足。使用迎风格式可得稳定条件 $\nu \leq 1$。</p>
+<p>对于粘性项，如果使用显式积分，还需要满足扩散稳定性条件：
+$$\Delta t \leq \frac{(\Delta x)^2}{2d\nu}$$
+其中 $d$ 是空间维度。由于这个条件对小网格非常严格（$\Delta t \propto (\Delta x)^2$），粘性项通常使用隐式或半隐式方法处理。</p>
+<p><strong>多物理场的综合稳定性条件</strong>：</p>
+<ol>
+<li>
+<p><strong>对流CFL</strong>：$\Delta t_{adv} = C_{adv} \frac{\Delta x}{|\mathbf{u}|_{\max}}$</p>
+</li>
+<li>
+<p><strong>粘性稳定性</strong>：$\Delta t_{visc} = C_{visc} \frac{(\Delta x)^2}{\nu}$</p>
+</li>
+<li>
+<p><strong>表面张力</strong>（如果存在）：$\Delta t_{\sigma} = C_{\sigma} \sqrt{\frac{\rho (\Delta x)^3}{\sigma}}$</p>
+</li>
+<li>
+<p><strong>重力波</strong>（自由表面）：$\Delta t_{grav} = C_{grav} \sqrt{\frac{\Delta x}{g}}$</p>
+</li>
+</ol>
+<p>最终时间步长：$\Delta t = \min(\Delta t_{adv}, \Delta t_{visc}, \Delta t_{\sigma}, \Delta t_{grav})$</p>
+<p>其中 $C_{adv} \approx 0.5$, $C_{visc} \approx 0.25$, $C_{\sigma} \approx 0.5$, $C_{grav} \approx 0.5$ 是安全系数。</p>
+<h2 id="42">4.2 网格类型与离散化</h2>
+<h3 id="421-vsstaggered-grid">4.2.1 同位网格vs交错网格(Staggered Grid)</h3>
+<p><strong>同位网格（Collocated Grid）</strong>：</p>
+<ul>
+<li>所有物理量（速度分量、压力等）存储在网格单元中心</li>
+<li>实现简单，但可能产生棋盘格压力振荡</li>
+<li>需要特殊处理来避免数值不稳定</li>
+</ul>
+<p><strong>棋盘格问题的根源</strong>：在同位网格上，压力梯度使用中心差分：
+$$\left(\frac{\partial p}{\partial x}\right)_i = \frac{p_{i+1} - p_{i-1}}{2\Delta x}$$
+这个离散算子无法感知棋盘格模式 $p_i = (-1)^i$，因为 $p_{i+1} - p_{i-1} = 0$。这导致压力泊松方程的零空间包含非物理的高频模式。</p>
+<p><strong>交错网格（MAC Grid）</strong>：</p>
+<ul>
+<li>压力存储在单元中心</li>
+<li>速度分量存储在对应的单元面中心</li>
+<li>$u$ 存储在 $(i+1/2, j)$ 位置</li>
+<li>$v$ 存储在 $(i, j+1/2)$ 位置</li>
+</ul>
+<p>MAC网格的布局：</p>
+<div class="codehilite"><pre><span></span><code>      v(i,j+1/2)
+         |
+u(i-1/2,j)---p(i,j)---u(i+1/2,j)
+         |
+      v(i,j-1/2)
+</code></pre></div>
+
+<p><strong>MAC网格的数学优势</strong>：</p>
+<ol>
+<li>
+<p><strong>紧凑的梯度-散度对</strong>：散度和梯度算子互为负转置：
+$$\langle \nabla \cdot \mathbf{u}, p \rangle = -\langle \mathbf{u}, \nabla p \rangle$$
+这保证了离散系统的能量守恒性。</p>
+</li>
+<li>
+<p><strong>自然的通量计算</strong>：速度直接定义在单元界面上，便于计算质量通量。</p>
+</li>
+<li>
+<p><strong>最优的inf-sup条件</strong>：MAC离散满足离散inf-sup（LBB）条件，保证了压力的唯一性。</p>
+</li>
+</ol>
+<p><strong>实现细节</strong>：在Taichi中，MAC网格的索引约定：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 压力和标量场：单元中心</span>
+<span class="n">pressure</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="nb">float</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">nx</span><span class="p">,</span> <span class="n">ny</span><span class="p">))</span>
+<span class="c1"># u速度：垂直面中心</span>
+<span class="n">u</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="nb">float</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">nx</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="n">ny</span><span class="p">))</span>
+<span class="c1"># v速度：水平面中心  </span>
+<span class="n">v</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="nb">float</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">nx</span><span class="p">,</span> <span class="n">ny</span><span class="o">+</span><span class="mi">1</span><span class="p">))</span>
+</code></pre></div>
+
+<h3 id="422-mac">4.2.2 MAC网格的优势</h3>
+<ol>
+<li><strong>自然满足散度定理</strong>：在单元边界上直接计算通量</li>
+<li><strong>避免压力振荡</strong>：压力和速度的耦合更紧密</li>
+<li><strong>边界条件处理简单</strong>：速度分量直接位于边界上</li>
+<li><strong>守恒性好</strong>：离散后仍保持质量、动量守恒</li>
+</ol>
+<p>离散散度算子在MAC网格上特别简洁：
+$$(\nabla \cdot \mathbf{u})_{i,j} = \frac{u_{i+1/2,j} - u_{i-1/2,j}}{\Delta x} + \frac{v_{i,j+1/2} - v_{i,j-1/2}}{\Delta y}$$</p>
+<h3 id="423">4.2.3 双线性插值</h3>
+<p>由于速度分量存储在不同位置，经常需要插值获取任意位置的速度。对于双线性插值：
+$$f(x,y) = f_{00}(1-\alpha)(1-\beta) + f_{10}\alpha(1-\beta) + f_{01}(1-\alpha)\beta + f_{11}\alpha\beta$$
+其中 $\alpha = (x - x_0)/\Delta x$，$\beta = (y - y_0)/\Delta y$ 是局部坐标。</p>
+<p>在Taichi中实现双线性插值：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>
+<span class="k">def</span> <span class="nf">bilinear_interp</span><span class="p">(</span><span class="n">field</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">template</span><span class="p">(),</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="nb">int</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+    <span class="n">fx</span><span class="p">,</span> <span class="n">fy</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">i</span><span class="p">,</span> <span class="n">y</span> <span class="o">-</span> <span class="n">j</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">field</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">fx</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">fy</span><span class="p">)</span> <span class="o">+</span>
+            <span class="n">field</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">*</span> <span class="n">fx</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">fy</span><span class="p">)</span> <span class="o">+</span>
+            <span class="n">field</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">fx</span><span class="p">)</span> <span class="o">*</span> <span class="n">fy</span> <span class="o">+</span>
+            <span class="n">field</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span><span class="n">j</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="n">fx</span> <span class="o">*</span> <span class="n">fy</span><span class="p">)</span>
+</code></pre></div>
+
+<h3 id="424">4.2.4 散度与梯度算子离散</h3>
+<p><strong>散度算子</strong>（用于不可压缩约束）：
+$$(\nabla \cdot \mathbf{u})_{i,j} = \frac{u_{i+1/2,j} - u_{i-1/2,j}}{\Delta x} + \frac{v_{i,j+1/2} - v_{i,j-1/2}}{\Delta y}$$
+<strong>梯度算子</strong>（用于压力梯度）：
+$$(\nabla p)_x|_{i+1/2,j} = \frac{p_{i+1,j} - p_{i,j}}{\Delta x}$$
+$$(\nabla p)_y|_{i,j+1/2} = \frac{p_{i,j+1} - p_{i,j}}{\Delta y}$$
+<strong>Laplace算子</strong>（用于粘性项和压力泊松方程）：
+$$(\nabla^2 p)_{i,j} = \frac{p_{i+1,j} - 2p_{i,j} + p_{i-1,j}}{(\Delta x)^2} + \frac{p_{i,j+1} - 2p_{i,j} + p_{i,j-1}}{(\Delta y)^2}$$</p>
+<h2 id="43-semi-lagrangian-advection">4.3 半拉格朗日输送(Semi-Lagrangian Advection)</h2>
+<h3 id="431">4.3.1 反向粒子追踪</h3>
+<p>半拉格朗日方法结合了拉格朗日和欧拉方法的优点。基本思想是：对于网格点 $\mathbf{x}$，追踪到达该点的流体粒子在上一时刻的位置 $\mathbf{x}_{prev}$：
+$$\mathbf{x}_{prev} = \mathbf{x} - \Delta t \cdot \mathbf{u}(\mathbf{x})$$
+然后通过插值获取该位置的物理量作为新时刻的值：
+$$q^{n+1}(\mathbf{x}) = q^n(\mathbf{x}_{prev})$$
+这种方法无条件稳定，允许使用大时间步长，但会引入数值耗散。</p>
+<h3 id="432">4.3.2 速度插值策略</h3>
+<p>简单的一阶精度追踪使用当前位置的速度，但可以通过Runge-Kutta方法提高精度：</p>
+<p><strong>RK2（中点法）</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>
+<span class="k">def</span> <span class="nf">backtrace_rk2</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">vec2</span><span class="p">,</span> <span class="n">dt</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ti</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">vec2</span><span class="p">:</span>
+    <span class="n">v1</span> <span class="o">=</span> <span class="n">sample_velocity</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">x_mid</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">v1</span>
+    <span class="n">v2</span> <span class="o">=</span> <span class="n">sample_velocity</span><span class="p">(</span><span class="n">x_mid</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">x</span> <span class="o">-</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">v2</span>
+</code></pre></div>
+
+<p><strong>RK3</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>  
+<span class="k">def</span> <span class="nf">backtrace_rk3</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">vec2</span><span class="p">,</span> <span class="n">dt</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ti</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">vec2</span><span class="p">:</span>
+    <span class="n">v1</span> <span class="o">=</span> <span class="n">sample_velocity</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">x1</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">v1</span>
+    <span class="n">v2</span> <span class="o">=</span> <span class="n">sample_velocity</span><span class="p">(</span><span class="n">x1</span><span class="p">)</span>
+    <span class="n">x2</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="mf">0.75</span> <span class="o">*</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">v2</span>
+    <span class="n">v3</span> <span class="o">=</span> <span class="n">sample_velocity</span><span class="p">(</span><span class="n">x2</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">x</span> <span class="o">-</span> <span class="n">dt</span> <span class="o">*</span> <span class="p">(</span><span class="mf">2.0</span><span class="o">/</span><span class="mf">9.0</span> <span class="o">*</span> <span class="n">v1</span> <span class="o">+</span> <span class="mf">1.0</span><span class="o">/</span><span class="mf">3.0</span> <span class="o">*</span> <span class="n">v2</span> <span class="o">+</span> <span class="mf">4.0</span><span class="o">/</span><span class="mf">9.0</span> <span class="o">*</span> <span class="n">v3</span><span class="p">)</span>
+</code></pre></div>
+
+<h3 id="433">4.3.3 数值耗散问题</h3>
+<p>半拉格朗日方法的主要缺点是数值耗散，表现为：</p>
+<ul>
+<li>涡旋快速衰减</li>
+<li>细节特征模糊</li>
+<li>能量不守恒</li>
+</ul>
+<p>数值耗散的根源是插值过程中的平滑效应。每次插值相当于应用了一个低通滤波器，多次输送后高频信息逐渐丢失。</p>
+<h3 id="434">4.3.4 单调性保持</h3>
+<p>为了避免产生非物理的新极值，可以使用限制器：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>
+<span class="k">def</span> <span class="nf">clamp_extrema</span><span class="p">(</span><span class="n">q_new</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">vec2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="c1"># 获取周围网格点的最大最小值</span>
+    <span class="n">q_min</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">inf</span>
+    <span class="n">q_max</span> <span class="o">=</span> <span class="o">-</span><span class="n">ti</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">inf</span>
+    <span class="k">for</span> <span class="n">di</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">dj</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+            <span class="n">q_neighbor</span> <span class="o">=</span> <span class="n">q_field</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">+</span><span class="n">di</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span><span class="o">+</span><span class="n">dj</span><span class="p">]</span>
+            <span class="n">q_min</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">q_min</span><span class="p">,</span> <span class="n">q_neighbor</span><span class="p">)</span>
+            <span class="n">q_max</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">q_max</span><span class="p">,</span> <span class="n">q_neighbor</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">clamp</span><span class="p">(</span><span class="n">q_new</span><span class="p">,</span> <span class="n">q_min</span><span class="p">,</span> <span class="n">q_max</span><span class="p">)</span>
+</code></pre></div>
+
+<h2 id="44">4.4 高阶输送格式</h2>
+<h3 id="441-maccormack">4.4.1 MacCormack方法</h3>
+<p>MacCormack方法通过前向和后向输送估计误差并补偿：</p>
+<ol>
+<li>前向输送：$\phi^* = \text{SemiLagrangian}(\phi^n, \Delta t)$</li>
+<li>后向输送：$\phi^{**} = \text{SemiLagrangian}(\phi^*, -\Delta t)$  </li>
+<li>误差估计：$e = \frac{1}{2}(\phi^n - \phi^{**})$</li>
+<li>修正结果：$\phi^{n+1} = \phi^* + e$</li>
+</ol>
+<p>实现时需要加入限制器防止过冲：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">kernel</span>
+<span class="k">def</span> <span class="nf">maccormack_advect</span><span class="p">(</span><span class="n">phi</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">template</span><span class="p">(),</span> <span class="n">phi_new</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">template</span><span class="p">(),</span> <span class="n">dt</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
+    <span class="c1"># 前向输送</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">phi</span><span class="p">:</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="p">([</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span> <span class="o">+</span> <span class="mf">0.5</span>
+        <span class="n">x_prev</span> <span class="o">=</span> <span class="n">backtrace</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dt</span><span class="p">)</span>
+        <span class="n">phi_star</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">bilinear_sample</span><span class="p">(</span><span class="n">phi</span><span class="p">,</span> <span class="n">x_prev</span><span class="p">)</span>
+
+    <span class="c1"># 后向输送  </span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">phi</span><span class="p">:</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="p">([</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span> <span class="o">+</span> <span class="mf">0.5</span>
+        <span class="n">x_next</span> <span class="o">=</span> <span class="n">backtrace</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="o">-</span><span class="n">dt</span><span class="p">)</span>
+        <span class="n">phi_nn</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">bilinear_sample</span><span class="p">(</span><span class="n">phi_star</span><span class="p">,</span> <span class="n">x_next</span><span class="p">)</span>
+
+    <span class="c1"># 误差补偿</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">phi</span><span class="p">:</span>
+        <span class="n">phi_new</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">phi_star</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">phi_nn</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">])</span>
+        <span class="n">phi_new</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">clamp_extrema</span><span class="p">(</span><span class="n">phi_new</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">],</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">)</span>
+</code></pre></div>
+
+<h3 id="442-bfecc">4.4.2 BFECC方法</h3>
+<p>BFECC (Back and Forth Error Compensation and Correction) 是另一种减少数值耗散的方法：</p>
+<ol>
+<li>前向输送：$\phi^{n+1/2} = A(\phi^n)$</li>
+<li>后向输送：$\phi^{n*} = A^{-1}(\phi^{n+1/2})$</li>
+<li>误差估计：$e = \frac{1}{2}(\phi^n - \phi^{n*})$</li>
+<li>修正输入：$\tilde{\phi}^n = \phi^n + e$</li>
+<li>最终输送：$\phi^{n+1} = A(\tilde{\phi}^n)$</li>
+</ol>
+<p>其中 $A$ 表示输送算子，$A^{-1}$ 表示反向输送。</p>
+<h3 id="443-runge-kutta">4.4.3 Runge-Kutta积分</h3>
+<p>对于速度场的高阶积分，常用RK4方法：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>
+<span class="k">def</span> <span class="nf">rk4_backtrace</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">vec2</span><span class="p">,</span> <span class="n">dt</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ti</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">vec2</span><span class="p">:</span>
+    <span class="n">k1</span> <span class="o">=</span> <span class="n">sample_velocity</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">k2</span> <span class="o">=</span> <span class="n">sample_velocity</span><span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">k1</span><span class="p">)</span>
+    <span class="n">k3</span> <span class="o">=</span> <span class="n">sample_velocity</span><span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">k2</span><span class="p">)</span>
+    <span class="n">k4</span> <span class="o">=</span> <span class="n">sample_velocity</span><span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">k3</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">x</span> <span class="o">-</span> <span class="n">dt</span> <span class="o">*</span> <span class="p">(</span><span class="n">k1</span> <span class="o">+</span> <span class="mi">2</span><span class="o">*</span><span class="n">k2</span> <span class="o">+</span> <span class="mi">2</span><span class="o">*</span><span class="n">k3</span> <span class="o">+</span> <span class="n">k4</span><span class="p">)</span> <span class="o">/</span> <span class="mf">6.0</span>
+</code></pre></div>
+
+<h3 id="444-clamping">4.4.4 限制器与夹持(Clamping)</h3>
+<p>为了保持物理量的界限和避免振荡，需要使用各种限制器：</p>
+<p><strong>MinMod限制器</strong>：
+$$\text{minmod}(a, b) = \begin{cases}
+a &amp; \text{if } |a| &lt; |b| \text{ and } ab &gt; 0 \\
+b &amp; \text{if } |b| &lt; |a| \text{ and } ab &gt; 0 \\
+0 &amp; \text{otherwise}
+\end{cases}$$
+<strong>Superbee限制器</strong>：
+$$\text{superbee}(a, b) = \text{maxmod}(\text{minmod}(2a, b), \text{minmod}(a, 2b))$$
+这些限制器确保高阶方法不会产生新的极值，保持解的物理性。</p>
+<h2 id="45-chorin">4.5 Chorin式压力投影</h2>
+<h3 id="451-helmholtz-hodge">4.5.1 Helmholtz-Hodge分解</h3>
+<p>Helmholtz-Hodge定理指出，任意向量场可以唯一分解为无散场和无旋场之和：
+$$\mathbf{u} = \mathbf{u}_{div-free} + \nabla \phi$$
+其中 $\nabla \cdot \mathbf{u}_{div-free} = 0$。这是压力投影法的理论基础。</p>
+<h3 id="452">4.5.2 压力泊松方程推导</h3>
+<p>从动量方程出发：
+$$\frac{\mathbf{u}^{n+1} - \mathbf{u}^*}{\Delta t} = -\frac{1}{\rho}\nabla p$$
+其中 $\mathbf{u}^*$ 是不满足不可压缩条件的中间速度。</p>
+<p>对两边取散度，并应用不可压缩条件 $\nabla \cdot \mathbf{u}^{n+1} = 0$：
+$$\nabla \cdot \mathbf{u}^{n+1} - \nabla \cdot \mathbf{u}^* = -\frac{\Delta t}{\rho} \nabla^2 p$$
+因此得到压力泊松方程：
+$$\nabla^2 p = \frac{\rho}{\Delta t} \nabla \cdot \mathbf{u}^*$$</p>
+<h3 id="453">4.5.3 离散化与边界条件</h3>
+<p>在MAC网格上，压力泊松方程的离散形式为：
+$$\frac{p_{i+1,j} - 2p_{i,j} + p_{i-1,j}}{(\Delta x)^2} + \frac{p_{i,j+1} - 2p_{i,j} + p_{i,j-1}}{(\Delta y)^2} = \frac{\rho}{\Delta t} \cdot divergence_{i,j}$$
+<strong>边界条件</strong>：</p>
+<ul>
+<li><strong>固体边界</strong>：法向压力梯度为零（Neumann条件）$\frac{\partial p}{\partial n} = 0$</li>
+<li><strong>自由表面</strong>：压力为大气压（Dirichlet条件）$p = 0$</li>
+<li><strong>周期边界</strong>：压力和梯度都周期延拓</li>
+</ul>
+<p>离散系统可以写成矩阵形式 $\mathbf{A}\mathbf{p} = \mathbf{b}$，其中 $\mathbf{A}$ 是离散Laplace算子。</p>
+<h3 id="454">4.5.4 速度修正步</h3>
+<p>求解压力后，通过压力梯度修正速度场：
+$$\mathbf{u}^{n+1} = \mathbf{u}^* - \frac{\Delta t}{\rho} \nabla p$$
+在MAC网格上的具体形式：
+$$u_{i+1/2,j}^{n+1} = u_{i+1/2,j}^* - \frac{\Delta t}{\rho} \frac{p_{i+1,j} - p_{i,j}}{\Delta x}$$
+$$v_{i,j+1/2}^{n+1} = v_{i,j+1/2}^* - \frac{\Delta t}{\rho} \frac{p_{i,j+1} - p_{i,j}}{\Delta y}$$
+投影后的速度场自动满足不可压缩条件。</p>
+<h2 id="46">4.6 固体边界条件</h2>
+<h3 id="461">4.6.1 无滑移条件</h3>
+<p>对于粘性流体，在固体壁面上需要满足无滑移条件：</p>
+<ul>
+<li>法向速度：$\mathbf{u} \cdot \mathbf{n} = 0$</li>
+<li>切向速度：$\mathbf{u} \cdot \mathbf{t} = 0$</li>
+</ul>
+<p>在MAC网格上，直接设置边界上的速度分量：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">kernel</span>
+<span class="k">def</span> <span class="nf">enforce_boundary</span><span class="p">():</span>
+    <span class="c1"># 左右边界</span>
+    <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">ny</span><span class="p">):</span>
+        <span class="n">u</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>      <span class="c1"># 左边界</span>
+        <span class="n">u</span><span class="p">[</span><span class="n">nx</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>     <span class="c1"># 右边界</span>
+    <span class="c1"># 上下边界  </span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nx</span><span class="p">):</span>
+        <span class="n">v</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>      <span class="c1"># 下边界</span>
+        <span class="n">v</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">ny</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>     <span class="c1"># 上边界</span>
+</code></pre></div>
+
+<h3 id="462">4.6.2 自由滑移条件</h3>
+<p>自由滑移条件只约束法向速度，允许切向滑动：</p>
+<ul>
+<li>法向速度：$\mathbf{u} \cdot \mathbf{n} = 0$</li>
+<li>切向应力：$\tau \cdot \mathbf{t} = 0$</li>
+</ul>
+<p>实现时，设置法向速度为零，但不修改切向速度。</p>
+<h3 id="463">4.6.3 浸入边界法</h3>
+<p>对于复杂几何形状，浸入边界法（Immersed Boundary Method）将边界力作为体积力添加到动量方程中：
+$$\rho \frac{D\mathbf{u}}{Dt} = -\nabla p + \mu \nabla^2 \mathbf{u} + \mathbf{f}_{IB}$$
+其中 $\mathbf{f}_{IB}$ 是边界力，通过拉格朗日乘子或罚函数方法计算。</p>
+<h3 id="464">4.6.4 切割单元法</h3>
+<p>切割单元法（Cut-cell Method）精确处理与网格不对齐的边界：</p>
+<ol>
+<li>计算每个单元被固体占据的体积分数</li>
+<li>修改离散算子以考虑部分单元</li>
+<li>在切割单元上应用特殊的插值和梯度计算</li>
+</ol>
+<p>这种方法可以达到二阶精度，但实现相对复杂。</p>
+<h2 id="47">4.7 自由表面边界条件</h2>
+<h3 id="471">4.7.1 运动学条件</h3>
+<p>自由表面必须满足运动学条件：表面上的粒子始终保持在表面上。用等势面函数 $\phi$ 表示界面，其满足：
+$$\frac{D\phi}{Dt} = \frac{\partial \phi}{\partial t} + \mathbf{u} \cdot \nabla \phi = 0$$
+这是一个Hamilton-Jacobi型方程，描述了界面的输送。</p>
+<h3 id="472">4.7.2 动力学条件</h3>
+<p>在自由表面上，应力必须连续。忽略空气的影响，边界条件为：
+$$p = p_{atm} - \sigma \kappa$$
+其中：</p>
+<ul>
+<li>$p_{atm}$ 是大气压（通常设为0）</li>
+<li>$\sigma$ 是表面张力系数</li>
+<li>$\kappa = \nabla \cdot \mathbf{n}$ 是界面曲率</li>
+</ul>
+<h3 id="473">4.7.3 表面张力处理</h3>
+<p><strong>连续表面力（CSF）模型</strong>将表面张力转换为体积力：
+$$\mathbf{F}_{st} = \sigma \kappa \delta(\phi) \nabla \phi$$
+其中 $\delta(\phi)$ 是Dirac delta函数的光滑近似。在实际计算中：
+$$\kappa = \nabla \cdot \left(\frac{\nabla \phi}{|\nabla \phi|}\right)$$
+为了数值稳定性，通常使用光滑的delta函数：
+$$\delta_{\epsilon}(\phi) = \begin{cases}
+\frac{1}{2\epsilon}\left(1 + \cos\left(\frac{\pi\phi}{\epsilon}\right)\right) &amp; |\phi| &lt; \epsilon \\
+0 &amp; \text{otherwise}
+\end{cases}$$</p>
+<h3 id="474-ghost-fluid">4.7.4 Ghost Fluid方法</h3>
+<p>Ghost Fluid方法在界面两侧使用虚拟值来处理不连续：</p>
+<ol>
+<li>在界面附近定义ghost cells</li>
+<li>根据界面条件外推物理量到ghost cells</li>
+<li>使用标准离散格式，自动处理界面跳跃条件</li>
+</ol>
+<p>例如，对于压力的ghost值：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>
+<span class="k">def</span> <span class="nf">extrapolate_pressure</span><span class="p">(</span><span class="n">i</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">j</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">*</span> <span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># 界面穿过单元</span>
+        <span class="c1"># 线性外推压力值</span>
+        <span class="n">theta</span> <span class="o">=</span> <span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">/</span> <span class="p">(</span><span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">phi</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span><span class="n">j</span><span class="p">])</span>
+        <span class="k">return</span> <span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">theta</span><span class="p">)</span> <span class="o">*</span> <span class="n">p</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">+</span> <span class="n">theta</span> <span class="o">*</span> <span class="n">p_air</span>
+    <span class="k">return</span> <span class="n">p</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]</span>
+</code></pre></div>
+
+<h2 id="_1">本章小结</h2>
+<p>本章介绍了欧拉视角下的流体仿真核心概念：</p>
+<ol>
+<li><strong>物质导数</strong>：$\frac{D}{Dt} = \frac{\partial}{\partial t} + \mathbf{u} \cdot \nabla$ 连接了欧拉和拉格朗日描述</li>
+<li><strong>算子分裂</strong>：将复杂的Navier-Stokes方程分解为对流、外力和投影三步</li>
+<li><strong>MAC网格</strong>：交错网格自然满足离散散度定理，避免压力振荡</li>
+<li><strong>半拉格朗日输送</strong>：无条件稳定但有数值耗散，需要高阶修正</li>
+<li><strong>压力投影</strong>：通过求解泊松方程 $\nabla^2 p = \frac{\rho}{\Delta t}\nabla \cdot \mathbf{u}^*$ 实现不可压缩性</li>
+<li><strong>边界条件</strong>：固体边界的无滑移/自由滑移，自由表面的运动学/动力学条件</li>
+</ol>
+<p>掌握这些概念是实现稳定高效的流体求解器的基础。</p>
+<h2 id="_2">练习题</h2>
+<h3 id="_3">基础题</h3>
+<p><strong>练习4.1</strong> 推导二维情况下的物质导数展开式。对于标量场 $\phi(x,y,t)$，证明：
+$$\frac{D\phi}{Dt} = \frac{\partial \phi}{\partial t} + u\frac{\partial \phi}{\partial x} + v\frac{\partial \phi}{\partial y}$$</p>
+<details>
+<summary>提示</summary>
+<p>考虑流体质点的轨迹 $\mathbf{x}(t)$，使用链式法则。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>沿着流体质点的轨迹 $\mathbf{x}(t) = (x(t), y(t))$，有 $\frac{dx}{dt} = u$，$\frac{dy}{dt} = v$。</p>
+<p>应用链式法则：
+$$\frac{D\phi}{Dt} = \frac{d}{dt}\phi(x(t), y(t), t) = \frac{\partial \phi}{\partial t} + \frac{\partial \phi}{\partial x}\frac{dx}{dt} + \frac{\partial \phi}{\partial y}\frac{dy}{dt}$$
+代入速度分量：
+$$\frac{D\phi}{Dt} = \frac{\partial \phi}{\partial t} + u\frac{\partial \phi}{\partial x} + v\frac{\partial \phi}{\partial y} = \frac{\partial \phi}{\partial t} + \mathbf{u} \cdot \nabla\phi$$</p>
+</details>
+<p><strong>练习4.2</strong> 在MAC网格上，给定速度场 $u_{i+1/2,j}$ 和 $v_{i,j+1/2}$，写出计算单元 $(i,j)$ 处散度的公式。如果 $\Delta x = \Delta y = h$，散度为零意味着什么？</p>
+<details>
+<summary>提示</summary>
+<p>考虑流入和流出单元的通量平衡。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>散度公式：
+$$(\nabla \cdot \mathbf{u})_{i,j} = \frac{u_{i+1/2,j} - u_{i-1/2,j}}{\Delta x} + \frac{v_{i,j+1/2} - v_{i,j-1/2}}{\Delta y}$$
+当 $\Delta x = \Delta y = h$ 时：
+$$(\nabla \cdot \mathbf{u})_{i,j} = \frac{1}{h}[(u_{i+1/2,j} - u_{i-1/2,j}) + (v_{i,j+1/2} - v_{i,j-1/2})]$$
+散度为零意味着流入单元的质量通量等于流出的质量通量，满足质量守恒。</p>
+</details>
+<p><strong>练习4.3</strong> 证明压力投影步骤后的速度场满足不可压缩条件。给定 $\mathbf{u}^{n+1} = \mathbf{u}^* - \frac{\Delta t}{\rho}\nabla p$，其中 $p$ 满足 $\nabla^2 p = \frac{\rho}{\Delta t}\nabla \cdot \mathbf{u}^*$。</p>
+<details>
+<summary>提示</summary>
+<p>对速度更新公式两边取散度。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>对速度更新公式取散度：
+$$\nabla \cdot \mathbf{u}^{n+1} = \nabla \cdot \mathbf{u}^* - \frac{\Delta t}{\rho}\nabla \cdot (\nabla p)$$
+注意到 $\nabla \cdot (\nabla p) = \nabla^2 p$，代入压力泊松方程：
+$$\nabla \cdot \mathbf{u}^{n+1} = \nabla \cdot \mathbf{u}^* - \frac{\Delta t}{\rho} \cdot \frac{\rho}{\Delta t}\nabla \cdot \mathbf{u}^*$$</p>
+<p>$$\nabla \cdot \mathbf{u}^{n+1} = \nabla \cdot \mathbf{u}^* - \nabla \cdot \mathbf{u}^* = 0$$
+因此投影后的速度场自动满足不可压缩条件。</p>
+</details>
+<h3 id="_4">挑战题</h3>
+<p><strong>练习4.4</strong> 分析半拉格朗日方法的数值耗散。考虑一维线性对流方程 $\frac{\partial u}{\partial t} + c\frac{\partial u}{\partial x} = 0$，使用线性插值，证明数值解引入了人工扩散项。</p>
+<details>
+<summary>提示</summary>
+<p>将插值误差用Taylor级数展开，分析截断误差的主导项。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>设网格间距为 $h$，时间步长为 $\Delta t$，CFL数 $\nu = c\Delta t/h$。</p>
+<p>半拉格朗日更新：$u_i^{n+1} = (1-\alpha)u_{i-1}^n + \alpha u_i^n$，其中 $\alpha = 1 - \nu$ 是插值系数。</p>
+<p>使用Taylor展开：
+$$u_{i-1}^n = u_i^n - h\frac{\partial u}{\partial x} + \frac{h^2}{2}\frac{\partial^2 u}{\partial x^2} + O(h^3)$$
+代入更新公式：
+$$u_i^{n+1} = u_i^n - \nu h\frac{\partial u}{\partial x} + \frac{\nu h^2}{2}\frac{\partial^2 u}{\partial x^2} + O(h^3)$$
+与精确解 $u_i^{n+1} = u_i^n - c\Delta t\frac{\partial u}{\partial x}$ 比较，得到修正方程：
+$$\frac{\partial u}{\partial t} + c\frac{\partial u}{\partial x} = \frac{ch}{2}\nu(1-\nu)\frac{\partial^2 u}{\partial x^2}$$
+右端项是数值扩散，扩散系数 $D_{num} = \frac{ch}{2}\nu(1-\nu)$ 总是正的，导致解的耗散。</p>
+</details>
+<p><strong>练习4.5</strong> 设计一个测试案例验证你的流体求解器的收敛阶。考虑Taylor-Green涡旋：
+$$u(x,y,t) = -\cos(x)\sin(y)e^{-2\nu t}$$
+$$v(x,y,t) = \sin(x)\cos(y)e^{-2\nu t}$$
+$$p(x,y,t) = -\frac{1}{4}[\cos(2x) + \cos(2y)]e^{-4\nu t}$$</p>
+<details>
+<summary>提示</summary>
+<p>这是Navier-Stokes方程的精确解，可以计算不同网格分辨率下的L2误差。</p>
+</details>
+<details>
+<summary>答案</summary>
+<ol>
+<li>验证此解满足Navier-Stokes方程（代入可验证）</li>
+<li>在 $[0, 2\pi]^2$ 域上使用周期边界条件</li>
+<li>计算L2误差：$e_h = \sqrt{\frac{1}{N}\sum_{i,j}(u_{computed} - u_{exact})^2}$</li>
+<li>对不同网格尺寸 $h = 2\pi/N$，计算误差</li>
+<li>收敛阶：$p = \log(e_h/e_{h/2})/\log(2)$</li>
+<li>预期：空间二阶精度 $e_h = O(h^2)$</li>
+</ol>
+</details>
+<p><strong>练习4.6</strong> 实现一个自适应时间步长策略，基于CFL条件和粘性稳定性条件自动选择最大允许时间步长。</p>
+<details>
+<summary>提示</summary>
+<p>需要同时考虑对流CFL和扩散稳定性条件。</p>
+</details>
+<details>
+<summary>答案</summary>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">kernel</span>
+<span class="k">def</span> <span class="nf">compute_max_dt</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="c1"># 对流CFL条件</span>
+    <span class="n">max_vel</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">u</span><span class="p">:</span>
+        <span class="n">max_vel</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">max_vel</span><span class="p">,</span> <span class="nb">abs</span><span class="p">(</span><span class="n">u</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]))</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">v</span><span class="p">:</span>
+        <span class="n">max_vel</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">max_vel</span><span class="p">,</span> <span class="nb">abs</span><span class="p">(</span><span class="n">v</span><span class="p">[</span><span class="n">i</span><span class="p">,</span><span class="n">j</span><span class="p">]))</span>
+
+    <span class="n">dt_cfl</span> <span class="o">=</span> <span class="n">CFL</span> <span class="o">*</span> <span class="n">dx</span> <span class="o">/</span> <span class="p">(</span><span class="n">max_vel</span> <span class="o">+</span> <span class="mf">1e-8</span><span class="p">)</span>
+
+    <span class="c1"># 粘性稳定性条件（如果使用显式粘性）</span>
+    <span class="n">dt_visc</span> <span class="o">=</span> <span class="mf">0.25</span> <span class="o">*</span> <span class="n">dx</span> <span class="o">*</span> <span class="n">dx</span> <span class="o">/</span> <span class="p">(</span><span class="n">nu</span> <span class="o">+</span> <span class="mf">1e-8</span><span class="p">)</span>
+
+    <span class="c1"># 表面张力稳定性条件（如果有）</span>
+    <span class="n">dt_tension</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">rho</span> <span class="o">*</span> <span class="n">dx</span><span class="o">**</span><span class="mi">3</span> <span class="o">/</span> <span class="p">(</span><span class="n">sigma</span> <span class="o">+</span> <span class="mf">1e-8</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="n">dt_cfl</span><span class="p">,</span> <span class="n">dt_visc</span><span class="p">,</span> <span class="n">dt_tension</span><span class="p">)</span>
+</code></pre></div>
+
+</details>
+<p><strong>练习4.7</strong> 推导并实现涡量-流函数形式的不可压缩流动。这种形式自动满足不可压缩条件，避免了压力投影。</p>
+<details>
+<summary>提示</summary>
+<p>涡量 $\omega = \nabla \times \mathbf{u}$，流函数 $\psi$ 满足 $u = \frac{\partial \psi}{\partial y}$，$v = -\frac{\partial \psi}{\partial x}$。</p>
+</details>
+<details>
+<summary>答案</summary>
+<p>二维涡量输送方程：
+$$\frac{\partial \omega}{\partial t} + \mathbf{u} \cdot \nabla \omega = \nu \nabla^2 \omega$$
+流函数泊松方程：
+$$\nabla^2 \psi = -\omega$$</p>
+<p>边界条件：</p>
+<ul>
+<li>无滑移：$\psi = const$，$\frac{\partial \psi}{\partial n} = 0$</li>
+<li>自由滑移：$\psi = const$，$\omega = 0$</li>
+</ul>
+<p>算法步骤：</p>
+<ol>
+<li>输送涡量（使用半拉格朗日或高阶方法）</li>
+<li>求解流函数泊松方程</li>
+<li>从流函数计算速度场</li>
+<li>重复</li>
+</ol>
+<p>这种方法的优点是自动满足不可压缩性，缺点是边界条件处理较复杂，且难以推广到三维。</p>
+</details>
+<h2 id="_5">常见陷阱与错误</h2>
+<ol>
+<li>
+<p><strong>压力求解器不收敛</strong>
+   - 检查边界条件是否正确设置
+   - 对于全Neumann边界，需要固定一个参考压力点
+   - 确保离散算子的对称性</p>
+</li>
+<li>
+<p><strong>速度场发散</strong>
+   - CFL条件可能太宽松
+   - 检查边界条件实现
+   - 压力投影可能不充分（迭代次数不够）</p>
+</li>
+<li>
+<p><strong>MAC网格索引混淆</strong>
+   - 记住速度分量存储在不同位置
+   - 插值时要使用正确的网格点
+   - 绘图时需要将速度插值到单元中心</p>
+</li>
+<li>
+<p><strong>数值耗散过大</strong>
+   - 使用高阶输送方法（MacCormack、BFECC）
+   - 减小时间步长
+   - 考虑使用涡量约束</p>
+</li>
+<li>
+<p><strong>自由表面不稳定</strong>
+   - 表面张力的显式处理可能导致不稳定
+   - 使用隐式或半隐式表面张力
+   - 限制界面附近的时间步长</p>
+</li>
+</ol>
+<h2 id="_6">最佳实践检查清单</h2>
+<ul>
+<li>[ ] 使用MAC网格避免压力振荡</li>
+<li>[ ] 实现自适应时间步长确保稳定性</li>
+<li>[ ] 对对流项使用至少二阶精度方法</li>
+<li>[ ] 压力求解器使用预条件共轭梯度法</li>
+<li>[ ] 实现质量守恒检查</li>
+<li>[ ] 边界条件处理要保持离散算子的对称性</li>
+<li>[ ] 使用高阶插值减少数值耗散</li>
+<li>[ ] 定期验证不可压缩条件的满足程度</li>
+<li>[ ] 实现能量或涡量监控以检测数值耗散</li>
+<li>[ ] 对复杂边界使用浸入边界法或切割单元法</li>
+</ul>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter3.html" class="nav-link prev">← 第三章：拉格朗日视角（2）：有限元仿真</a><a href="./chapter5.html" class="nav-link next">第五章：欧拉视角（2）：线性系统求解器 →</a></nav>
+        </main>
+    </div>
+</body>
+</html>

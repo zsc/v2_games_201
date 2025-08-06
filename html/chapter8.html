@@ -1,0 +1,1677 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>第八章：混合欧拉-拉格朗日视角（2）：物质点法</title>
+    <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="./assets/highlight.css">
+    <script src="./assets/script.js" defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$']],
+                displayMath: [['$$', '$$']],
+                processEscapes: false,
+                packages: {'[+]': ['noerrors', 'ams']}
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            loader: {
+                load: ['[tex]/noerrors', '[tex]/ams']
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>目录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <ul class="nav-list"><li class=""><a href="./index.html">高级物理引擎实战教程</a></li><li class=""><a href="./chapter1.html">第一章：导论</a></li><li class=""><a href="./chapter2.html">第二章：拉格朗日视角（1）</a></li><li class=""><a href="./chapter3.html">第三章：拉格朗日视角（2）：有限元仿真</a></li><li class=""><a href="./chapter4.html">第四章：欧拉视角（1）</a></li><li class=""><a href="./chapter5.html">第五章：欧拉视角（2）：线性系统求解器</a></li><li class=""><a href="./chapter6.html">第六章：高级输送格式与等势面方法</a></li><li class=""><a href="./chapter7.html">第七章：混合欧拉-拉格朗日视角（1）</a></li><li class="active"><a href="./chapter8.html">第八章：混合欧拉-拉格朗日视角（2）：物质点法</a></li><li class=""><a href="./chapter9.html">第九章：高性能计算</a></li><li class=""><a href="./chapter10.html">第十章：可微编程与机器学习</a></li><li class=""><a href="./chapter8b.html">第八章：多重网格方法</a></li><li class=""><a href="./CLAUDE.html">Untitled</a></li><li class=""><a href="./old.html">Untitled</a></li></ul>
+        </nav>
+        
+        <main class="content">
+            <article>
+                <h1 id="-2">第八章：混合欧拉-拉格朗日视角（2）：物质点法</h1>
+<p>物质点法（Material Point Method, MPM）是一种强大的数值方法，结合了拉格朗日粒子和欧拉网格的优势。本章将深入探讨MPM的理论基础、经典算法、现代改进以及在各种材料模拟中的应用。我们将从基础的MPM算法开始，逐步深入到MLS-MPM、本构模型、断裂模拟等高级主题，并介绍Taichi中实现MPM的高级特性。</p>
+<h2 id="81-mpm">8.1 物质点法(MPM)基础</h2>
+<h3 id="811-mpm">8.1.1 MPM的历史与发展</h3>
+<p>物质点法最初由Sulsky和Schreyer在1996年提出，作为有限元方法(FEM)的扩展来处理大变形问题。传统FEM在处理极大变形时会遇到网格扭曲问题，而MPM通过使用拉格朗日粒子（物质点）携带材料信息，欧拉背景网格进行动量方程求解，巧妙地避免了这个问题。</p>
+<p>MPM的发展历程可以分为几个重要阶段：</p>
+<p><strong>早期发展（1994-2000）</strong>：</p>
+<ul>
+<li>1994年：Sulsky, Chen和Schreyer提出MPM的原始形式，用于固体力学中的冲击和穿透问题</li>
+<li>1995年：引入GIMP（Generalized Interpolation Material Point）方法，改善了数值稳定性</li>
+<li>1999年：Bardenhagen等人改进了MPM的动量守恒性质</li>
+</ul>
+<p><strong>理论完善（2000-2010）</strong>：</p>
+<ul>
+<li>2004年：Steffen等人提出了CPDI（Convected Particle Domain Interpolation），减少了格子噪声</li>
+<li>2008年：Sadeghirad等人发展了CPDI2，进一步提高了大变形下的精度</li>
+<li>2010年：引入了双网格MPM，分离了动量和应力的计算</li>
+</ul>
+<p><strong>图形学应用（2013至今）</strong>：
+2013年，Stomakhin等人将MPM引入计算机图形学领域，首次实现了雪的真实感模拟，在迪士尼动画《冰雪奇缘》中得到应用。这项工作展示了MPM在处理相变、断裂等复杂物理现象上的独特优势。</p>
+<p>关键突破包括：</p>
+<ul>
+<li>2014年：Jiang等人提出了APIC方法，实现了角动量守恒</li>
+<li>2016年：Klár等人用MPM模拟沙子，引入了Drucker-Prager塑性模型</li>
+<li>2016年：Daviet和Bertails-Descoubes提出了implicit MPM</li>
+<li>2017年：Gao等人发展了adaptive MPM，支持自适应网格细化</li>
+<li>2018年：Hu等人提出MLS-MPM，将实现简化到88行代码</li>
+<li>2019年：引入了基于神经网络的本构模型</li>
+<li>2020年：发展了GPU优化的MPM，实现了实时模拟</li>
+</ul>
+<p>MPM的核心思想是将连续介质离散为一系列携带质量、动量、应力等物理量的粒子，而背景网格仅用于计算内力和更新动量。这种双重表示方式使得MPM既保留了拉格朗日方法追踪材料历史的能力，又具备了欧拉方法处理碰撞和自碰撞的便利性。</p>
+<p><strong>应用领域扩展</strong>：</p>
+<ul>
+<li>地质工程：滑坡、土壤液化、基础沉降</li>
+<li>生物力学：软组织变形、手术模拟</li>
+<li>制造业：3D打印、粉末冶金、增材制造</li>
+<li>影视特效：雪崩、沙尘暴、泥石流、爆炸效果</li>
+<li>游戏引擎：可破坏环境、流体-固体交互</li>
+</ul>
+<h3 id="812-fem">8.1.2 与FEM的关系</h3>
+<p>MPM可以视为无网格Galerkin方法的一种，特别是属于无单元Galerkin（Element-Free Galerkin, EFG）方法家族。从数学角度看，MPM和FEM都基于连续介质力学的弱形式：</p>
+<p>$$\int_\Omega \rho \mathbf{a} \cdot \mathbf{w} \, dV = -\int_\Omega \boldsymbol{\sigma} : \nabla \mathbf{w} \, dV + \int_\Omega \rho \mathbf{b} \cdot \mathbf{w} \, dV + \int_{\partial\Omega_t} \mathbf{t} \cdot \mathbf{w} \, dA$$
+其中$\mathbf{w}$是测试函数，$\mathbf{a}$是加速度，$\boldsymbol{\sigma}$是柯西应力张量，$\mathbf{b}$是体力，$\mathbf{t}$是表面力。</p>
+<p><strong>积分方式的本质区别</strong>：</p>
+<p>MPM与FEM的主要区别在于积分方式和材料点的处理：</p>
+<p>| 特性 | FEM | MPM |</p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>FEM</th>
+<th>MPM</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>积分点</td>
+<td>高斯点，位置固定在单元内</td>
+<td>物质点，可自由移动</td>
+</tr>
+<tr>
+<td>网格作用</td>
+<td>承载所有信息</td>
+<td>仅用于动量更新</td>
+</tr>
+<tr>
+<td>拓扑变化</td>
+<td>需要重新网格化</td>
+<td>自然处理</td>
+</tr>
+<tr>
+<td>历史变量</td>
+<td>存储在高斯点</td>
+<td>存储在粒子上</td>
+</tr>
+<tr>
+<td>大变形</td>
+<td>网格扭曲问题</td>
+<td>无网格扭曲</td>
+</tr>
+<tr>
+<td>接触处理</td>
+<td>需要显式接触算法</td>
+<td>自动处理</td>
+</tr>
+</tbody>
+</table>
+<p><strong>数学等价性</strong>：</p>
+<p>在小变形情况下，MPM可以完全等价于FEM。考虑一个单元内有$n_g$个高斯点的FEM和有$n_p$个粒子的MPM：</p>
+<p>FEM的积分：
+$$\int_{\Omega_e} f(\mathbf{x}) \, dV \approx \sum_{g=1}^{n_g} w_g J_g f(\mathbf{x}_g)$$
+MPM的积分：
+$$\int_{\Omega_e} f(\mathbf{x}) \, dV \approx \sum_{p=1}^{n_p} V_p f(\mathbf{x}_p)$$
+当粒子初始位置与高斯点重合，且$V_p = w_g J_g$时，两者完全等价。</p>
+<p><strong>MPM作为FEM的推广</strong>：</p>
+<p>MPM可以理解为使用特殊积分规则的FEM：</p>
+<ol>
+<li><strong>动态积分点</strong>：积分点（粒子）随材料移动，自动追踪材料历史</li>
+<li><strong>单点积分</strong>：每个粒子使用单点积分，$V_p$是积分权重</li>
+<li><strong>无单元结构</strong>：不需要维护单元连接关系，粒子通过背景网格交互</li>
+</ol>
+<p><strong>理论基础的继承</strong>：</p>
+<p>MPM继承了FEM的许多理论结果：</p>
+<ul>
+<li><strong>收敛性</strong>：在网格加密和粒子加密时，MPM收敛到连续解</li>
+<li><strong>误差估计</strong>：$||u - u_h|| \leq Ch^k$，其中$k$取决于形函数阶数</li>
+<li><strong>稳定性条件</strong>：CFL条件类似，$\Delta t \leq C\frac{h}{c}$，$c = \sqrt{E/\rho}$</li>
+<li><strong>守恒性质</strong>：质量、动量自动守恒，APIC/MLS-MPM还保证角动量守恒</li>
+</ul>
+<p><strong>优势与局限</strong>：</p>
+<p>MPM相对于FEM的优势：</p>
+<ul>
+<li>处理超大变形无需重网格化</li>
+<li>自动处理拓扑变化（断裂、合并）</li>
+<li>材料界面追踪精确</li>
+<li>历史相关本构模型实现简单</li>
+</ul>
+<p>MPM的局限性：</p>
+<ul>
+<li>计算成本通常高于FEM（需要更多粒子）</li>
+<li>边界条件施加不如FEM精确</li>
+<li>对于小变形问题，FEM更高效</li>
+<li>可能出现粒子聚集或空洞</li>
+</ul>
+<p>这种关系意味着MPM继承了FEM的坚实理论基础，同时又具有处理大变形的灵活性，使其成为极端变形问题的理想选择。</p>
+<h3 id="813">8.1.3 弱形式推导</h3>
+<p>从动量守恒方程出发：
+$$\rho \frac{D\mathbf{v}}{Dt} = \nabla \cdot \boldsymbol{\sigma} + \rho \mathbf{b}$$
+乘以测试函数$\mathbf{w}$并在域$\Omega$上积分：
+$$\int_\Omega \rho \frac{D\mathbf{v}}{Dt} \cdot \mathbf{w} \, dV = \int_\Omega (\nabla \cdot \boldsymbol{\sigma}) \cdot \mathbf{w} \, dV + \int_\Omega \rho \mathbf{b} \cdot \mathbf{w} \, dV$$
+对应力项使用分部积分：
+$$\int_\Omega (\nabla \cdot \boldsymbol{\sigma}) \cdot \mathbf{w} \, dV = -\int_\Omega \boldsymbol{\sigma} : \nabla \mathbf{w} \, dV + \int_{\partial\Omega} (\boldsymbol{\sigma} \cdot \mathbf{n}) \cdot \mathbf{w} \, dA$$
+在MPM中，我们使用粒子近似积分：
+$$\int_\Omega f(\mathbf{x}) \, dV \approx \sum_p V_p f(\mathbf{x}_p)$$
+其中$V_p$是粒子$p$的体积，$\mathbf{x}_p$是粒子位置。</p>
+<h3 id="814">8.1.4 空间离散化</h3>
+<p>MPM的空间离散化采用混合方法，结合了拉格朗日粒子和欧拉网格的优势：</p>
+<ol>
+<li><strong>粒子表示（拉格朗日部分）</strong></li>
+</ol>
+<p>材料被离散为$N_p$个粒子，每个粒子$p$携带完整的材料状态：</p>
+<p>| 变量 | 符号 | 物理意义 | 维度 |</p>
+<table>
+<thead>
+<tr>
+<th>变量</th>
+<th>符号</th>
+<th>物理意义</th>
+<th>维度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>位置</td>
+<td>$\mathbf{x}_p$</td>
+<td>当前构型中的位置</td>
+<td>$\mathbb{R}^d$</td>
+</tr>
+<tr>
+<td>速度</td>
+<td>$\mathbf{v}_p$</td>
+<td>材料点速度</td>
+<td>$\mathbb{R}^d$</td>
+</tr>
+<tr>
+<td>质量</td>
+<td>$m_p$</td>
+<td>粒子质量（守恒）</td>
+<td>$\mathbb{R}$</td>
+</tr>
+<tr>
+<td>体积</td>
+<td>$V_p$</td>
+<td>当前体积</td>
+<td>$\mathbb{R}$</td>
+</tr>
+<tr>
+<td>初始体积</td>
+<td>$V_p^0$</td>
+<td>参考构型体积</td>
+<td>$\mathbb{R}$</td>
+</tr>
+<tr>
+<td>变形梯度</td>
+<td>$\mathbf{F}_p$</td>
+<td>变形梯度张量</td>
+<td>$\mathbb{R}^{d\times d}$</td>
+</tr>
+<tr>
+<td>应力</td>
+<td>$\boldsymbol{\sigma}_p$</td>
+<td>柯西应力张量</td>
+<td>$\mathbb{R}^{d\times d}$</td>
+</tr>
+<tr>
+<td>仿射速度</td>
+<td>$\mathbf{C}_p$</td>
+<td>APIC/MLS-MPM速度梯度</td>
+<td>$\mathbb{R}^{d\times d}$</td>
+</tr>
+<tr>
+<td>塑性变形</td>
+<td>$\mathbf{F}_p^p$</td>
+<td>塑性变形部分</td>
+<td>$\mathbb{R}^{d\times d}$</td>
+</tr>
+<tr>
+<td>内部变量</td>
+<td>$\boldsymbol{\alpha}_p$</td>
+<td>硬化参数等</td>
+<td>问题相关</td>
+</tr>
+</tbody>
+</table>
+<p>粒子密度的选择原则：</p>
+<ul>
+<li>2D：每个网格单元4-9个粒子</li>
+<li>3D：每个网格单元8-27个粒子</li>
+<li>自适应：基于变形程度动态调整</li>
+</ul>
+<ol start="2">
+<li><strong>背景网格（欧拉部分）</strong></li>
+</ol>
+<p>使用规则的背景网格进行动量更新，网格节点$i$存储：</p>
+<p>| 变量 | 符号 | 作用 | 生命周期 |</p>
+<table>
+<thead>
+<tr>
+<th>变量</th>
+<th>符号</th>
+<th>作用</th>
+<th>生命周期</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>位置</td>
+<td>$\mathbf{x}_i$</td>
+<td>节点坐标（固定）</td>
+<td>永久</td>
+</tr>
+<tr>
+<td>速度</td>
+<td>$\mathbf{v}_i$</td>
+<td>节点速度</td>
+<td>单个时间步</td>
+</tr>
+<tr>
+<td>质量</td>
+<td>$m_i$</td>
+<td>节点质量</td>
+<td>单个时间步</td>
+</tr>
+<tr>
+<td>动量</td>
+<td>$\mathbf{p}_i$</td>
+<td>$= m_i \mathbf{v}_i$</td>
+<td>单个时间步</td>
+</tr>
+<tr>
+<td>力</td>
+<td>$\mathbf{f}_i$</td>
+<td>节点受力</td>
+<td>单个时间步</td>
+</tr>
+</tbody>
+</table>
+<p>网格类型选择：</p>
+<ul>
+<li><strong>均匀笛卡尔网格</strong>：实现简单，GPU友好</li>
+<li><strong>MAC网格</strong>：交错网格，用于流体</li>
+<li><strong>自适应网格</strong>：AMR或八叉树结构</li>
+</ul>
+<ol start="3">
+<li><strong>形函数（插值核）</strong></li>
+</ol>
+<p>形函数$N_i(\mathbf{x})$定义了粒子和网格之间的映射关系。常用B样条基函数：</p>
+<p><strong>线性B样条（tent函数）</strong>：
+$$N^1(x) = \begin{cases}
+1 - |x| &amp; |x| \leq 1 \\
+0 &amp; |x| &gt; 1
+\end{cases}$$
+导数：
+$$\frac{dN^1}{dx} = \begin{cases}
+-\text{sign}(x) &amp; |x| &lt; 1 \\
+0 &amp; |x| \geq 1
+\end{cases}$$
+<strong>二次B样条</strong>：
+$$N^2(x) = \begin{cases}
+\frac{3}{4} - x^2 &amp; |x| \leq \frac{1}{2} \\
+\frac{1}{2}(\frac{3}{2} - |x|)^2 &amp; \frac{1}{2} &lt; |x| \leq \frac{3}{2} \\
+0 &amp; |x| &gt; \frac{3}{2}
+\end{cases}$$
+导数：
+$$\frac{dN^2}{dx} = \begin{cases}
+-2x &amp; |x| \leq \frac{1}{2} \\
+-(\frac{3}{2} - |x|)\text{sign}(x) &amp; \frac{1}{2} &lt; |x| \leq \frac{3}{2} \\
+0 &amp; |x| &gt; \frac{3}{2}
+\end{cases}$$
+<strong>三次B样条</strong>：
+$$N^3(x) = \begin{cases}
+\frac{1}{2}|x|^3 - x^2 + \frac{2}{3} &amp; |x| \leq 1 \\
+-\frac{1}{6}|x|^3 + x^2 - 2|x| + \frac{4}{3} &amp; 1 &lt; |x| \leq 2 \\
+0 &amp; |x| &gt; 2
+\end{cases}$$
+<strong>多维形函数</strong>：</p>
+<p>使用张量积构造：
+$$N_i(\mathbf{x}_p) = \prod_{d=1}^{\text{dim}} N^{1D}\left(\frac{x_p^d - x_i^d}{\Delta x}\right)$$</p>
+<ol start="4">
+<li><strong>离散化误差分析</strong></li>
+</ol>
+<p>空间离散化引入的误差主要来源于：</p>
+<ol>
+<li><strong>积分误差</strong>：$O(h^{k+1})$，其中$k$是形函数阶数</li>
+<li><strong>插值误差</strong>：$O(h^{k})$，影响P2G/G2P传输</li>
+<li>
+<p><strong>格子噪声</strong>：粒子穿越网格单元边界时的误差</p>
+</li>
+<li>
+<p><strong>粒子-网格映射关系</strong></p>
+</li>
+</ol>
+<p>定义权重函数：
+$$w_{ip} = N_i(\mathbf{x}_p)$$
+梯度权重：
+$$\nabla w_{ip} = \nabla N_i(\mathbf{x}_p)$$
+这些权重满足：</p>
+<ul>
+<li>分割统一性：$\sum_i w_{ip} = 1$</li>
+<li>紧支性：只有有限个$w_{ip} \neq 0$</li>
+<li>光滑性：$C^{k-1}$连续，其中$k$是B样条阶数</li>
+</ul>
+<p>空间离散化的关键是粒子-网格传输（P2G）和网格-粒子传输（G2P）操作，这些传输保证了动量守恒和数值稳定性。</p>
+<h2 id="82-mpm">8.2 经典MPM算法</h2>
+<h3 id="821-usl-vs-usf">8.2.1 应力更新(USL vs USF)</h3>
+<p>MPM算法的一个关键选择是应力更新的时机，主要有两种策略：</p>
+<p><strong>Update Stress Last (USL)</strong>：</p>
+<ol>
+<li>粒子到网格传输（P2G）</li>
+<li>网格动量更新</li>
+<li>网格到粒子传输（G2P）</li>
+<li>在粒子上更新应力</li>
+</ol>
+<p>USL算法流程：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">for</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">particles</span><span class="p">:</span>
+<span class="w">    </span><span class="n">F_p</span><span class="o">^</span><span class="p">{</span><span class="n">n</span><span class="o">+</span><span class="mi">1</span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">I</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">dt</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="err">∇</span><span class="n">v</span><span class="o">^</span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">F_p</span><span class="o">^</span><span class="n">n</span>
+<span class="w">    </span><span class="err">σ</span><span class="n">_p</span><span class="o">^</span><span class="p">{</span><span class="n">n</span><span class="o">+</span><span class="mi">1</span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">constitutive_model</span><span class="p">(</span><span class="n">F_p</span><span class="o">^</span><span class="p">{</span><span class="n">n</span><span class="o">+</span><span class="mi">1</span><span class="p">})</span>
+</code></pre></div>
+
+<p><strong>Update Stress First (USF)</strong>：</p>
+<ol>
+<li>在粒子上更新应力</li>
+<li>粒子到网格传输（P2G）</li>
+<li>网格动量更新</li>
+<li>网格到粒子传输（G2P）</li>
+</ol>
+<p>USF算法流程：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">for</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">particles</span><span class="p">:</span>
+<span class="w">    </span><span class="err">σ</span><span class="n">_p</span><span class="o">^</span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">constitutive_model</span><span class="p">(</span><span class="n">F_p</span><span class="o">^</span><span class="n">n</span><span class="p">)</span>
+<span class="w">    </span><span class="c1"># 然后进行P2G传输</span>
+</code></pre></div>
+
+<p>USF通常具有更好的能量守恒性质，但USL在某些情况下数值稳定性更好。选择取决于具体的应用场景和材料模型。</p>
+<h3 id="822">8.2.2 形函数选择</h3>
+<p>形函数的选择对MPM的精度和稳定性有重要影响，需要在计算效率、数值精度和稳定性之间权衡：</p>
+<p><strong>形函数对比</strong>：</p>
+<p>| 特性 | 线性B样条 | 二次B样条 | 三次B样条 |</p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>线性B样条</th>
+<th>二次B样条</th>
+<th>三次B样条</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>支持域</td>
+<td>$[-1, 1]$</td>
+<td>$[-1.5, 1.5]$</td>
+<td>$[-2, 2]$</td>
+</tr>
+<tr>
+<td>影响节点(2D)</td>
+<td>4</td>
+<td>9</td>
+<td>16</td>
+</tr>
+<tr>
+<td>影响节点(3D)</td>
+<td>8</td>
+<td>27</td>
+<td>64</td>
+</tr>
+<tr>
+<td>连续性</td>
+<td>$C^0$</td>
+<td>$C^1$</td>
+<td>$C^2$</td>
+</tr>
+<tr>
+<td>计算复杂度</td>
+<td>低</td>
+<td>中</td>
+<td>高</td>
+</tr>
+<tr>
+<td>格子噪声</td>
+<td>严重</td>
+<td>轻微</td>
+<td>几乎无</td>
+</tr>
+<tr>
+<td>内存占用</td>
+<td>小</td>
+<td>中</td>
+<td>大</td>
+</tr>
+</tbody>
+</table>
+<p><strong>线性B样条（tent函数）</strong>：</p>
+<ul>
+<li>优点：计算效率高，实现简单，内存占用小</li>
+<li>缺点：严重的格子噪声（grid crossing error），梯度不连续</li>
+<li>应用：快速原型开发，实时应用，GPU实现</li>
+<li>数学表达：$N^1(x) = \max(0, 1 - |x|)$</li>
+</ul>
+<p><strong>二次B样条</strong>：</p>
+<ul>
+<li>优点：$C^1$连续，格子噪声较小，精度-效率平衡好</li>
+<li>缺点：计算量是线性的3倍左右</li>
+<li>应用：大多数生产级MPM实现的默认选择</li>
+<li>特殊性质：满足再生条件，可精确再生线性场</li>
+</ul>
+<p><strong>三次B样条</strong>：</p>
+<ul>
+<li>优点：$C^2$连续，几乎无格子噪声，高精度</li>
+<li>缺点：计算成本高，内存占用大，实现复杂</li>
+<li>应用：高精度科学计算，小规模精确模拟</li>
+<li>特殊性质：可精确再生二次多项式场</li>
+</ul>
+<p><strong>格子噪声（Grid Crossing Error）分析</strong>：</p>
+<p>当粒子穿越网格单元边界时，权重函数的不连续变化导致的数值噪声：
+$$\text{Error} \propto \frac{\partial^{k+1} N}{\partial x^{k+1}}$$
+其中$k$是B样条的阶数。高阶B样条具有更高阶的连续性，因此格子噪声更小。</p>
+<p><strong>形函数计算优化</strong>：</p>
+<p>多维形函数使用张量积：
+$$N_i(\mathbf{x}_p) = \prod_{d=1}^{\text{dim}} N^{1D}\left(\frac{x_p^d - x_i^d}{\Delta x}\right)$$
+梯度计算（利用链式法则）：
+$$\nabla N_i(\mathbf{x}_p) = \begin{bmatrix}
+\frac{\partial N^{1D}_x}{\partial x} N^{1D}_y N^{1D}_z \\
+N^{1D}_x \frac{\partial N^{1D}_y}{\partial y} N^{1D}_z \\
+N^{1D}_x N^{1D}_y \frac{\partial N^{1D}_z}{\partial z}
+\end{bmatrix}$$
+<strong>实现技巧</strong>：</p>
+<ol>
+<li>预计算权重表：对于固定网格，预计算并存储权重</li>
+<li>SIMD优化：利用向量指令并行计算多个权重</li>
+<li>稀疏性利用：只计算非零权重（利用紧支性）</li>
+<li>缓存优化：按粒子空间位置排序，提高缓存命中率</li>
+</ol>
+<h3 id="823">8.2.3 积分点与背景网格</h3>
+<p>MPM中的数值积分使用单点积分规则，每个粒子作为一个积分点，这是MPM区别于传统FEM的关键特征：</p>
+<p><strong>积分近似</strong>：
+$$\int_\Omega f(\mathbf{x}) \, dV \approx \sum_p V_p^0 f(\mathbf{x}_p)$$
+其中$V_p^0$是粒子的初始（参考）体积，满足：
+$$\sum_p V_p^0 = V_{\text{total}}$$
+<strong>粒子作为积分点的特性</strong>：</p>
+<ol>
+<li><strong>单点积分</strong>：每个粒子使用单点求积规则，可能引入零能模式</li>
+<li><strong>权重更新</strong>：$V_p = J_p V_p^0$，其中$J_p = \det(\mathbf{F}_p)$</li>
+<li><strong>守恒性</strong>：质量守恒自动满足，$m_p = \rho_0 V_p^0$保持不变</li>
+<li><strong>精度分析</strong>：积分精度取决于粒子密度和分布均匀性</li>
+</ol>
+<p><strong>背景网格类型详解</strong>：</p>
+<p><strong>1. 均匀笛卡尔网格</strong>：
+- 结构：规则的立方体单元，间距$\Delta x$
+- 索引：直接映射$(i,j,k) \rightarrow i + j \cdot N_x + k \cdot N_x \cdot N_y$
+- 优点：实现简单，缓存友好，GPU高效
+- 缺点：内存浪费（空区域也分配）
+- 适用：中小规模、密集型模拟</p>
+<p><strong>2. SPGrid（Sparse Paged Grid）</strong>：
+- 结构：虚拟内存页（通常512³或1024³）
+- 原理：利用OS的虚拟内存管理，未使用页不占物理内存
+- 优点：自动内存管理，支持超大域
+- 实现：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 概念性实现</span>
+<span class="n">page_mask</span> <span class="o">=</span> <span class="mh">0xFFFFF000</span>  <span class="c1"># 4KB页</span>
+<span class="n">offset_mask</span> <span class="o">=</span> <span class="mh">0x00000FFF</span>
+<span class="n">page_table</span> <span class="o">=</span> <span class="p">{}</span>  <span class="c1"># 稀疏页表</span>
+</code></pre></div>
+
+<ul>
+<li>适用：大规模稀疏模拟（如烟雾）</li>
+</ul>
+<p><strong>3. OpenVDB风格层次网格</strong>：
+- 结构：B+树，典型配置5-4-3（根-内部-叶子）
+- 分辨率：支持$2^{30}$级别的虚拟分辨率
+- 优点：极度稀疏时内存效率最高，支持自适应
+- 缺点：随机访问开销大，实现复杂
+- 适用：电影级特效，极大规模模拟</p>
+<p><strong>4. 自适应网格（AMR）</strong>：
+- 结构：八叉树（3D）或四叉树（2D）
+- 细化准则：基于粒子密度、变形梯度或误差估计
+- 优点：计算资源集中在关键区域
+- 挑战：P2G/G2P跨级别传输复杂</p>
+<p><strong>粒子分布策略</strong>：</p>
+<p><strong>初始分布模式</strong>：</p>
+<ol>
+<li>
+<p><strong>规则分布</strong>：
+   - 2D：$2\times2$或$3\times3$每单元
+   - 3D：$2\times2\times2$或$3\times3\times3$每单元
+   - 优点：均匀，易实现
+   - 缺点：可能产生各向异性</p>
+</li>
+<li>
+<p><strong>随机扰动</strong>：</p>
+</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Jittered sampling</span>
+<span class="n">x_p</span> <span class="o">=</span> <span class="n">x_regular</span> <span class="o">+</span> <span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="o">-</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span> <span class="o">*</span> <span class="n">dx</span> <span class="o">*</span> <span class="n">jitter_factor</span>
+</code></pre></div>
+
+<ul>
+<li>jitter_factor通常取0.1-0.3</li>
+<li>减少规则分布的伪影</li>
+</ul>
+<ol start="3">
+<li><strong>Poisson盘采样</strong>：
+   - 保证最小间距$r_{\min}$
+   - 蓝噪声特性，更均匀
+   - 实现复杂但质量最高</li>
+</ol>
+<p><strong>粒子密度准则</strong>：</p>
+<p>| 维度 | 最小密度 | 推荐密度 | 高质量密度 |</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>最小密度</th>
+<th>推荐密度</th>
+<th>高质量密度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1D</td>
+<td>2 ppc</td>
+<td>3 ppc</td>
+<td>4 ppc</td>
+</tr>
+<tr>
+<td>2D</td>
+<td>4 ppc</td>
+<td>9 ppc</td>
+<td>16 ppc</td>
+</tr>
+<tr>
+<td>3D</td>
+<td>8 ppc</td>
+<td>27 ppc</td>
+<td>64 ppc</td>
+</tr>
+</tbody>
+</table>
+<p>（ppc = particles per cell）</p>
+<p><strong>积分精度与粒子数关系</strong>：
+$$\text{Error} = O\left(\frac{1}{\sqrt{N_p}}\right) + O(h^k)$$
+第一项是统计误差，第二项是离散化误差。</p>
+<h3 id="824">8.2.4 边界条件处理</h3>
+<p>MPM中的边界条件在网格级别施加，这是欧拉部分处理的优势。边界条件的正确施加对模拟的物理真实性至关重要：</p>
+<p><strong>边界条件类型</strong>：</p>
+<p><strong>1. 粘性边界（Sticky/No-slip）</strong>：
+物理意义：完全粘附，模拟粗糙表面或胶合界面
+$$\mathbf{v}_i = \mathbf{v}_{\text{wall}} \quad \text{if } \mathbf{x}_i \in \partial\Omega_{\text{sticky}}$$
+通常$\mathbf{v}_{\text{wall}} = 0$（静止壁面），但也可以是运动边界。</p>
+<p><strong>2. 滑动边界（Slip/Free-slip）</strong>：
+物理意义：无摩擦滑动，只约束法向分量
+$$\begin{cases}
+\mathbf{v}_i \cdot \mathbf{n} = \mathbf{v}_{\text{wall}} \cdot \mathbf{n} \\
+\mathbf{v}_i^{\text{new}} = \mathbf{v}_i - (\mathbf{v}_i \cdot \mathbf{n} - \mathbf{v}_{\text{wall}} \cdot \mathbf{n})\mathbf{n}
+\end{cases}$$</p>
+<p><strong>3. 分离边界（Separable/One-way）</strong>：
+物理意义：单向约束，允许分离但阻止穿透
+$$\mathbf{v}_i^{\text{new}} = \begin{cases}
+\mathbf{v}_i - \min(0, \mathbf{v}_i \cdot \mathbf{n})\mathbf{n} &amp; \text{if approaching} \\
+\mathbf{v}_i &amp; \text{if separating}
+\end{cases}$$</p>
+<p><strong>4. 摩擦边界（Frictional）</strong>：
+结合库仑摩擦模型：
+$$\begin{cases}
+\mathbf{v}_n = -e \cdot \mathbf{v}_i \cdot \mathbf{n} \cdot \mathbf{n} &amp; \text{(法向，e是恢复系数)} \\
+\mathbf{v}_t = \max(0, 1 - \mu \frac{|\mathbf{v}_n|}{|\mathbf{v}_t|}) \mathbf{v}_t &amp; \text{(切向，μ是摩擦系数)}
+\end{cases}$$
+<strong>实现策略</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">kernel</span>
+<span class="k">def</span> <span class="nf">apply_boundary_conditions</span><span class="p">():</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">grid_v</span><span class="p">:</span>
+        <span class="c1"># 检查边界</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">boundary_width</span> <span class="ow">or</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="n">res_x</span> <span class="o">-</span> <span class="n">boundary_width</span><span class="p">:</span>
+            <span class="n">apply_bc_x</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">j</span> <span class="o">&lt;</span> <span class="n">boundary_width</span> <span class="ow">or</span> <span class="n">j</span> <span class="o">&gt;=</span> <span class="n">res_y</span> <span class="o">-</span> <span class="n">boundary_width</span><span class="p">:</span>
+            <span class="n">apply_bc_y</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">k</span> <span class="o">&lt;</span> <span class="n">boundary_width</span> <span class="ow">or</span> <span class="n">k</span> <span class="o">&gt;=</span> <span class="n">res_z</span> <span class="o">-</span> <span class="n">boundary_width</span><span class="p">:</span>
+            <span class="n">apply_bc_z</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+
+<span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>
+<span class="k">def</span> <span class="nf">apply_bc_x</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">boundary_type</span> <span class="o">==</span> <span class="n">STICKY</span><span class="p">:</span>
+        <span class="n">grid_v</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">vec3</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">boundary_type</span> <span class="o">==</span> <span class="n">SLIP</span><span class="p">:</span>
+        <span class="n">normal</span> <span class="o">=</span> <span class="n">vec3</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">boundary_width</span> <span class="k">else</span> <span class="n">vec3</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">vn</span> <span class="o">=</span> <span class="n">grid_v</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">normal</span><span class="p">)</span>
+        <span class="n">grid_v</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span> <span class="o">-=</span> <span class="n">vn</span> <span class="o">*</span> <span class="n">normal</span>
+    <span class="k">elif</span> <span class="n">boundary_type</span> <span class="o">==</span> <span class="n">SEPARATE</span><span class="p">:</span>
+        <span class="n">normal</span> <span class="o">=</span> <span class="n">vec3</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">boundary_width</span> <span class="k">else</span> <span class="n">vec3</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">vn</span> <span class="o">=</span> <span class="n">grid_v</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">normal</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">vn</span> <span class="o">*</span> <span class="n">normal</span><span class="o">.</span><span class="n">x</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># 朝向边界</span>
+            <span class="n">grid_v</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span> <span class="o">-=</span> <span class="n">vn</span> <span class="o">*</span> <span class="n">normal</span>
+    <span class="k">elif</span> <span class="n">boundary_type</span> <span class="o">==</span> <span class="n">FRICTION</span><span class="p">:</span>
+        <span class="n">apply_friction_bc</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>复杂边界几何</strong>：</p>
+<p><strong>1. 隐式表面（Level Set）</strong>：
+使用有符号距离场$\phi(\mathbf{x})$表示边界：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>
+<span class="k">def</span> <span class="nf">apply_sdf_boundary</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">v</span><span class="p">):</span>
+    <span class="n">phi</span> <span class="o">=</span> <span class="n">sample_sdf</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">phi</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># 在物体内部</span>
+        <span class="n">normal</span> <span class="o">=</span> <span class="n">compute_sdf_gradient</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">normalized</span><span class="p">()</span>
+        <span class="n">vn</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">normal</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">boundary_type</span> <span class="o">==</span> <span class="n">STICKY</span><span class="p">:</span>
+            <span class="n">v</span> <span class="o">=</span> <span class="n">vec3</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">boundary_type</span> <span class="o">==</span> <span class="n">SLIP</span><span class="p">:</span>
+            <span class="n">v</span> <span class="o">-=</span> <span class="n">vn</span> <span class="o">*</span> <span class="n">normal</span>
+    <span class="k">return</span> <span class="n">v</span>
+</code></pre></div>
+
+<p><strong>2. 解析边界</strong>：
+球体、平面、盒子等简单几何：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>
+<span class="k">def</span> <span class="nf">sphere_boundary</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">center</span><span class="p">,</span> <span class="n">radius</span><span class="p">):</span>
+    <span class="n">dist</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">center</span><span class="p">)</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">dist</span> <span class="o">&lt;</span> <span class="n">radius</span><span class="p">:</span>
+        <span class="n">normal</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">center</span><span class="p">)</span><span class="o">.</span><span class="n">normalized</span><span class="p">()</span>
+        <span class="c1"># 应用边界条件</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="n">apply_bc</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">normal</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">v</span>
+</code></pre></div>
+
+<p><strong>3. 三角网格边界</strong>：
+复杂几何使用三角网格表示，需要加速结构（BVH、空间哈希）。</p>
+<p><strong>边界条件的时机</strong>：</p>
+<p>正确的施加顺序：</p>
+<ol>
+<li>P2G传输</li>
+<li>网格动量更新（重力、内力）</li>
+<li><strong>施加边界条件</strong> ← 关键时机</li>
+<li>G2P传输</li>
+</ol>
+<p><strong>常见问题与解决</strong>：</p>
+<ol>
+<li>
+<p><strong>粒子穿透</strong>：
+   - 原因：时间步过大或边界太薄
+   - 解决：CFL条件、多层边界、连续碰撞检测</p>
+</li>
+<li>
+<p><strong>粘附伪影</strong>：
+   - 原因：数值粘性
+   - 解决：高阶形函数、FLIP混合</p>
+</li>
+<li>
+<p><strong>边界层分离</strong>：
+   - 原因：边界处粒子稀疏
+   - 解决：边界附近增加粒子密度</p>
+</li>
+<li>
+<p><strong>动量不守恒</strong>：
+   - 原因：边界力未正确计算
+   - 解决：记录边界冲量，用于后处理分析</p>
+</li>
+</ol>
+<h2 id="83-mpmmls-mpm">8.3 移动最小二乘MPM(MLS-MPM)</h2>
+<h3 id="831-mls">8.3.1 MLS插值理论</h3>
+<p>MLS-MPM是Hu等人在2018年提出的MPM简化版本，核心思想是使用移动最小二乘（Moving Least Squares）插值替代传统的B样条插值。</p>
+<p>MLS插值的目标是找到一个多项式$p(\mathbf{x})$，最小化加权误差：
+$$\min_p \sum_i w_i(\mathbf{x}) [p(\mathbf{x}_i) - f_i]^2$$
+其中$w_i(\mathbf{x})$是权重函数。</p>
+<p>对于一阶MLS（线性），我们寻找：
+$$p(\mathbf{x}) = \mathbf{a}^T \mathbf{x} + b$$
+解得系数后，MLS形函数为：
+$$\phi_i(\mathbf{x}) = w_i(\mathbf{x}) \mathbf{q}^T(\mathbf{x}) \mathbf{M}^{-1}(\mathbf{x}) \mathbf{q}(\mathbf{x}_i)$$
+其中$\mathbf{q}(\mathbf{x}) = [1, x, y, z]^T$是基函数向量。</p>
+<h3 id="832-88">8.3.2 88行实现解析</h3>
+<p>MLS-MPM的一个重要贡献是极简的实现。以下是核心算法的伪代码解析：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 初始化</span>
+<span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">particles</span><span class="p">:</span>
+    <span class="n">x_p</span> <span class="o">=</span> <span class="n">initial_position</span><span class="p">[</span><span class="n">p</span><span class="p">]</span>
+    <span class="n">v_p</span> <span class="o">=</span> <span class="n">initial_velocity</span><span class="p">[</span><span class="n">p</span><span class="p">]</span>
+    <span class="n">F_p</span> <span class="o">=</span> <span class="n">I</span>  <span class="c1"># 变形梯度初始为单位矩阵</span>
+    <span class="n">C_p</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># 仿射速度场矩阵</span>
+
+<span class="c1"># 主循环</span>
+<span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="n">time_steps</span><span class="p">:</span>
+    <span class="c1"># 清空网格</span>
+    <span class="n">grid_v</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">grid_m</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="c1"># P2G: 粒子到网格</span>
+    <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">particles</span><span class="p">:</span>
+        <span class="n">base</span> <span class="o">=</span> <span class="p">(</span><span class="n">x_p</span> <span class="o">/</span> <span class="n">dx</span> <span class="o">-</span> <span class="mf">0.5</span><span class="p">)</span><span class="o">.</span><span class="n">int</span><span class="p">()</span>
+        <span class="n">fx</span> <span class="o">=</span> <span class="n">x_p</span> <span class="o">/</span> <span class="n">dx</span> <span class="o">-</span> <span class="n">base</span>
+
+        <span class="c1"># 二次B样条权重</span>
+        <span class="n">w</span> <span class="o">=</span> <span class="p">[</span><span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.5</span> <span class="o">-</span> <span class="n">fx</span><span class="p">)</span><span class="o">^</span><span class="mi">2</span><span class="p">,</span>
+             <span class="mf">0.75</span> <span class="o">-</span> <span class="p">(</span><span class="n">fx</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span><span class="o">^</span><span class="mi">2</span><span class="p">,</span>
+             <span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="n">fx</span> <span class="o">-</span> <span class="mf">0.5</span><span class="p">)</span><span class="o">^</span><span class="mi">2</span><span class="p">]</span>
+
+        <span class="c1"># 计算应力（本构模型）</span>
+        <span class="n">stress</span> <span class="o">=</span> <span class="n">constitutive_model</span><span class="p">(</span><span class="n">F_p</span><span class="p">)</span>
+        <span class="n">affine</span> <span class="o">=</span> <span class="n">stress</span> <span class="o">+</span> <span class="n">mass</span> <span class="o">*</span> <span class="n">C_p</span>
+
+        <span class="c1"># 传输到网格</span>
+        <span class="k">for</span> <span class="n">offset</span> <span class="ow">in</span> <span class="mi">3</span><span class="n">x3x3</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="n">base</span> <span class="o">+</span> <span class="n">offset</span>
+            <span class="n">weight</span> <span class="o">=</span> <span class="n">w</span><span class="p">[</span><span class="n">offset</span><span class="o">.</span><span class="n">x</span><span class="p">]</span> <span class="o">*</span> <span class="n">w</span><span class="p">[</span><span class="n">offset</span><span class="o">.</span><span class="n">y</span><span class="p">]</span> <span class="o">*</span> <span class="n">w</span><span class="p">[</span><span class="n">offset</span><span class="o">.</span><span class="n">z</span><span class="p">]</span>
+            <span class="n">grid_v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">weight</span> <span class="o">*</span> <span class="p">(</span><span class="n">mass</span> <span class="o">*</span> <span class="n">v_p</span> <span class="o">+</span> <span class="n">affine</span> <span class="o">*</span> <span class="p">(</span><span class="n">x_i</span> <span class="o">-</span> <span class="n">x_p</span><span class="p">))</span>
+            <span class="n">grid_m</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">weight</span> <span class="o">*</span> <span class="n">mass</span>
+
+    <span class="c1"># 网格更新</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">grid</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">grid_m</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">grid_v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">/=</span> <span class="n">grid_m</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>  <span class="c1"># 动量转速度</span>
+            <span class="n">grid_v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">gravity</span>  <span class="c1"># 重力</span>
+            <span class="c1"># 施加边界条件</span>
+            <span class="n">apply_boundary_conditions</span><span class="p">(</span><span class="n">grid_v</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+
+    <span class="c1"># G2P: 网格到粒子</span>
+    <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">particles</span><span class="p">:</span>
+        <span class="n">v_p</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">C_p</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="k">for</span> <span class="n">offset</span> <span class="ow">in</span> <span class="mi">3</span><span class="n">x3x3</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="n">base</span> <span class="o">+</span> <span class="n">offset</span>
+            <span class="n">weight</span> <span class="o">=</span> <span class="n">w</span><span class="p">[</span><span class="n">offset</span><span class="o">.</span><span class="n">x</span><span class="p">]</span> <span class="o">*</span> <span class="n">w</span><span class="p">[</span><span class="n">offset</span><span class="o">.</span><span class="n">y</span><span class="p">]</span> <span class="o">*</span> <span class="n">w</span><span class="p">[</span><span class="n">offset</span><span class="o">.</span><span class="n">z</span><span class="p">]</span>
+            <span class="n">v_p</span> <span class="o">+=</span> <span class="n">weight</span> <span class="o">*</span> <span class="n">grid_v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">C_p</span> <span class="o">+=</span> <span class="mi">4</span> <span class="o">*</span> <span class="n">weight</span> <span class="o">*</span> <span class="n">grid_v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">x_i</span> <span class="o">-</span> <span class="n">x_p</span><span class="p">)</span><span class="o">^</span><span class="n">T</span> <span class="o">/</span> <span class="n">dx</span><span class="o">^</span><span class="mi">2</span>
+
+        <span class="c1"># 更新位置和变形梯度</span>
+        <span class="n">x_p</span> <span class="o">+=</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">v_p</span>
+        <span class="n">F_p</span> <span class="o">=</span> <span class="p">(</span><span class="n">I</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">C_p</span><span class="p">)</span> <span class="o">*</span> <span class="n">F_p</span>
+</code></pre></div>
+
+<p>关键简化：</p>
+<ol>
+<li>直接使用$\mathbf{C}_p$矩阵近似速度梯度$\nabla \mathbf{v}$</li>
+<li>变形梯度更新：$\mathbf{F}^{n+1} = (\mathbf{I} + \Delta t \mathbf{C}^n) \mathbf{F}^n$</li>
+<li>体积更新：$J_{p} *= 1 + \Delta t \cdot \text{trace}(\mathbf{C})$</li>
+</ol>
+<h3 id="833">8.3.3 性能优势分析</h3>
+<p>MLS-MPM相比传统MPM的性能优势：</p>
+<ol>
+<li>
+<p><strong>计算复杂度降低</strong>：
+   - 传统MPM需要计算$\nabla N_i$：约30 FLOPs/粒子
+   - MLS-MPM直接使用$\mathbf{C}_p$：约15 FLOPs/粒子
+   - FLOPs减少约50%</p>
+</li>
+<li>
+<p><strong>内存访问优化</strong>：
+   - 减少了梯度计算的内存访问
+   - 更好的缓存局部性
+   - 适合GPU实现</p>
+</li>
+<li>
+<p><strong>数值稳定性</strong>：
+   - 自然满足角动量守恒
+   - 减少了数值耗散
+   - 更稳定的大时间步长</p>
+</li>
+<li>
+<p><strong>实现简洁性</strong>：
+   - 代码行数大幅减少
+   - 易于理解和调试
+   - 便于扩展到不同材料模型</p>
+</li>
+</ol>
+<h3 id="834-apic">8.3.4 与APIC的关系</h3>
+<p>MLS-MPM本质上是APIC（Affine Particle-in-Cell）方法在弹性固体上的应用：</p>
+<p><strong>APIC回顾</strong>：</p>
+<ul>
+<li>粒子携带仿射速度场：$\mathbf{v}(\mathbf{x}) = \mathbf{v}_p + \mathbf{C}_p(\mathbf{x} - \mathbf{x}_p)$</li>
+<li>保证角动量守恒</li>
+</ul>
+<p><strong>MLS-MPM的创新</strong>：</p>
+<ol>
+<li>将APIC的动量传输用于MPM</li>
+<li>在P2G阶段融合了弹性力计算</li>
+<li>统一了流体和固体的处理框架</li>
+</ol>
+<p>数学关系：
+$$\mathbf{C}_p^{APIC} = \mathbf{C}_p^{MLS-MPM} \quad \text{(速度梯度矩阵相同)}$$</p>
+<p>$$\text{MLS-MPM} = \text{APIC} + \text{弹性力} + \text{本构模型}$$
+这种统一使得MLS-MPM可以无缝处理流固耦合问题。</p>
+<h2 id="84-mpm">8.4 MPM中的本构模型</h2>
+<h3 id="841-neo-hookean-corotated">8.4.1 弹性固体(Neo-Hookean, Corotated)</h3>
+<p>MPM可以轻松处理各种超弹性材料模型。最常用的是Neo-Hookean和Corotated模型。</p>
+<p><strong>Neo-Hookean模型</strong>：
+应变能密度函数：
+$$\psi(\mathbf{F}) = \frac{\mu}{2}(\text{tr}(\mathbf{F}^T\mathbf{F}) - d) - \mu\ln(J) + \frac{\lambda}{2}\ln^2(J)$$
+其中$J = \det(\mathbf{F})$，$d$是空间维度，$\mu$和$\lambda$是Lamé参数：
+$$\mu = \frac{E}{2(1+\nu)}, \quad \lambda = \frac{E\nu}{(1+\nu)(1-2\nu)}$$
+第一Piola-Kirchhoff应力：
+$$\mathbf{P}(\mathbf{F}) = \mu(\mathbf{F} - \mathbf{F}^{-T}) + \lambda\ln(J)\mathbf{F}^{-T}$$
+<strong>Corotated模型</strong>：
+使用极分解$\mathbf{F} = \mathbf{R}\mathbf{S}$，其中$\mathbf{R}$是旋转矩阵，$\mathbf{S}$是对称矩阵。</p>
+<p>应变能密度函数：
+$$\psi(\mathbf{F}) = \mu\sum_i(\sigma_i - 1)^2 + \frac{\lambda}{2}(J - 1)^2$$
+其中$\sigma_i$是$\mathbf{F}$的奇异值。</p>
+<p>第一Piola-Kirchhoff应力：
+$$\mathbf{P}(\mathbf{F}) = 2\mu(\mathbf{F} - \mathbf{R}) + \lambda(J - 1)J\mathbf{F}^{-T}$$
+Corotated模型更适合大旋转小应变的情况，而Neo-Hookean更适合大变形。</p>
+<h3 id="842">8.4.2 弱可压缩流体</h3>
+<p>对于流体模拟，MPM可以使用简化的状态方程模型。</p>
+<p><strong>状态方程</strong>：
+$$p = K(1 - J)$$
+其中$K$是体积模量，$J = \det(\mathbf{F})$是体积比。</p>
+<p><strong>流体的特殊处理</strong>：</p>
+<ol>
+<li>只维护$J$而不是完整的$\mathbf{F}$矩阵</li>
+<li>避免数值不稳定性</li>
+<li>压力贡献：$\mathbf{P} = -pJ\mathbf{F}^{-T}$</li>
+</ol>
+<p><strong>粘性项</strong>：
+可以添加粘性应力：
+$$\boldsymbol{\tau}_{\text{viscous}} = \mu(\nabla\mathbf{v} + \nabla\mathbf{v}^T)$$
+在P2G阶段直接使用$\mathbf{C}_p$计算粘性力。</p>
+<h3 id="843">8.4.3 弹塑性材料</h3>
+<p>弹塑性材料在超过屈服极限后会产生永久变形。MPM中常用乘法分解：
+$$\mathbf{F} = \mathbf{F}^e \mathbf{F}^p$$
+其中$\mathbf{F}^e$是弹性变形，$\mathbf{F}^p$是塑性变形。</p>
+<p><strong>屈服准则</strong>：
+判断材料是否进入塑性状态。常用的有：</p>
+<ol>
+<li>
+<p><strong>von Mises准则</strong>（金属）：
+$$f = \sqrt{\frac{3}{2}\mathbf{s}:\mathbf{s}} - \sigma_Y \leq 0$$
+其中$\mathbf{s}$是偏应力张量，$\sigma_Y$是屈服应力。</p>
+</li>
+<li>
+<p><strong>Drucker-Prager准则</strong>（砂土）：
+$$f = \sqrt{J_2} + \alpha I_1 - k \leq 0$$
+其中$I_1$是第一应力不变量，$J_2$是第二偏应力不变量。</p>
+</li>
+</ol>
+<p><strong>返回映射算法</strong>：
+当应力超过屈服面时，需要将应力投影回屈服面上：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># SVD分解</span>
+<span class="n">U</span><span class="p">,</span> <span class="n">Sigma</span><span class="p">,</span> <span class="n">V</span> <span class="o">=</span> <span class="n">svd</span><span class="p">(</span><span class="n">F_elastic</span><span class="p">)</span>
+
+<span class="c1"># von Mises返回映射</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">dim</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">Sigma</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">yield_surface</span><span class="p">:</span>
+        <span class="n">Sigma</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">yield_surface</span>
+    <span class="k">elif</span> <span class="n">Sigma</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&lt;</span> <span class="o">-</span><span class="n">yield_surface</span><span class="p">:</span>
+        <span class="n">Sigma</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="n">yield_surface</span>
+
+<span class="c1"># 重构弹性变形梯度</span>
+<span class="n">F_elastic</span> <span class="o">=</span> <span class="n">U</span> <span class="o">@</span> <span class="n">diag</span><span class="p">(</span><span class="n">Sigma</span><span class="p">)</span> <span class="o">@</span> <span class="n">V</span><span class="o">.</span><span class="n">T</span>
+</code></pre></div>
+
+<h3 id="844">8.4.4 屈服准则与塑性流动</h3>
+<p>塑性流动的方向由流动法则决定：</p>
+<p><strong>关联流动法则</strong>：
+$$\dot{\boldsymbol{\varepsilon}}^p = \dot{\lambda} \frac{\partial f}{\partial \boldsymbol{\sigma}}$$
+其中$\dot{\lambda}$是塑性乘子，$f$是屈服函数。</p>
+<p><strong>具体模型实例</strong>：</p>
+<ol>
+<li>
+<p><strong>雪的模型</strong>（Stomakhin 2013）：
+   - 使用可变的临界压缩和拉伸比
+   - 硬化参数随塑性变形增加
+   - $\theta_c = \theta_{c0}(1 + \xi\max(0, \varepsilon_p))$</p>
+</li>
+<li>
+<p><strong>沙子模型</strong>（Klár 2016）：
+   - Drucker-Prager屈服准则
+   - 体积保持：$\det(\mathbf{F}^p) = 1$
+   - 摩擦角$\phi$和内聚力$c$</p>
+</li>
+<li>
+<p><strong>泥土模型</strong>（Cam-Clay）：
+   - 椭圆形屈服面
+   - 硬化/软化行为
+   - 临界状态线</p>
+</li>
+</ol>
+<p><strong>SVD夹持技巧</strong>：
+MPM中常用SVD分解处理塑性：
+$$\mathbf{F} = \mathbf{U}\boldsymbol{\Sigma}\mathbf{V}^T$$
+通过夹持奇异值$\boldsymbol{\Sigma}$到屈服面内，可以简单地实现各种屈服准则：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Box屈服准则（用于雪）</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">dim</span><span class="p">):</span>
+    <span class="n">Sigma</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">clamp</span><span class="p">(</span><span class="n">Sigma</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="mi">1</span><span class="o">-</span><span class="n">theta_c</span><span class="p">,</span> <span class="mi">1</span><span class="o">+</span><span class="n">theta_s</span><span class="p">)</span>
+
+<span class="c1"># Drucker-Prager（用于沙子）</span>
+<span class="k">if</span> <span class="n">trace</span><span class="p">(</span><span class="n">Sigma</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># 压缩</span>
+    <span class="c1"># 投影到屈服面</span>
+    <span class="n">project_to_yield_surface</span><span class="p">(</span><span class="n">Sigma</span><span class="p">)</span>
+</code></pre></div>
+
+<h2 id="85-mpm">8.5 MPM中的拉格朗日力</h2>
+<h3 id="851">8.5.1 弹簧与阻尼器</h3>
+<p>MPM可以结合拉格朗日力来模拟额外的约束和相互作用。最常见的是弹簧-阻尼系统。</p>
+<p><strong>弹簧力模型</strong>：
+两个粒子之间的弹簧力：
+$$\mathbf{f}_{spring} = -k_s(||\mathbf{x}_i - \mathbf{x}_j|| - L_0)\frac{\mathbf{x}_i - \mathbf{x}_j}{||\mathbf{x}_i - \mathbf{x}_j||}$$
+其中$k_s$是弹簧刚度，$L_0$是原始长度。</p>
+<p><strong>阻尼力</strong>：
+$$\mathbf{f}_{damp} = -k_d(\mathbf{v}_i - \mathbf{v}_j) \cdot \frac{\mathbf{x}_i - \mathbf{x}_j}{||\mathbf{x}_i - \mathbf{x}_j||} \cdot \frac{\mathbf{x}_i - \mathbf{x}_j}{||\mathbf{x}_i - \mathbf{x}_j||}$$
+<strong>实现方式</strong>：</p>
+<ol>
+<li>在P2G之前计算拉格朗日力</li>
+<li>将力转换为动量变化</li>
+<li>在P2G阶段传输到网格</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 计算弹簧力</span>
+<span class="k">for</span> <span class="n">spring</span> <span class="ow">in</span> <span class="n">springs</span><span class="p">:</span>
+    <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="o">=</span> <span class="n">spring</span><span class="o">.</span><span class="n">endpoints</span>
+    <span class="n">direction</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="o">.</span><span class="n">normalized</span><span class="p">()</span>
+    <span class="n">stretch</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span> <span class="o">-</span> <span class="n">spring</span><span class="o">.</span><span class="n">rest_length</span>
+
+    <span class="c1"># 弹簧力</span>
+    <span class="n">f_spring</span> <span class="o">=</span> <span class="n">spring</span><span class="o">.</span><span class="n">stiffness</span> <span class="o">*</span> <span class="n">stretch</span> <span class="o">*</span> <span class="n">direction</span>
+
+    <span class="c1"># 阻尼力</span>
+    <span class="n">v_rel</span> <span class="o">=</span> <span class="n">v</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+    <span class="n">f_damp</span> <span class="o">=</span> <span class="n">spring</span><span class="o">.</span><span class="n">damping</span> <span class="o">*</span> <span class="n">dot</span><span class="p">(</span><span class="n">v_rel</span><span class="p">,</span> <span class="n">direction</span><span class="p">)</span> <span class="o">*</span> <span class="n">direction</span>
+
+    <span class="c1"># 应用力</span>
+    <span class="n">forces</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">f_spring</span> <span class="o">+</span> <span class="n">f_damp</span>
+    <span class="n">forces</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-=</span> <span class="n">f_spring</span> <span class="o">+</span> <span class="n">f_damp</span>
+</code></pre></div>
+
+<h3 id="852">8.5.2 薄壳与薄膜</h3>
+<p>MPM可以处理嵌入在高维空间中的低维结构。</p>
+<p><strong>薄膜模型</strong>：
+使用面内应变能：
+$$\psi_{membrane} = \frac{h}{2}\int_S \mathbf{E} : \mathbb{C} : \mathbf{E} \, dS$$
+其中$h$是厚度，$\mathbf{E}$是Green应变张量，$\mathbb{C}$是弹性张量。</p>
+<p><strong>弯曲能</strong>：
+对于薄壳，需要添加弯曲项：
+$$\psi_{bending} = \frac{h^3}{24}\int_S \kappa^2 \, dS$$
+其中$\kappa$是曲率。</p>
+<p><strong>离散化方法</strong>：</p>
+<ol>
+<li>使用三角网格表示薄壳</li>
+<li>每个三角形计算应变能</li>
+<li>将力贡献传输到MPM粒子</li>
+</ol>
+<p><strong>耦合策略</strong>：</p>
+<ul>
+<li>单向耦合：薄壳影响流体但不受流体影响</li>
+<li>双向耦合：通过网格交换动量</li>
+</ul>
+<h3 id="853">8.5.3 刚体约束</h3>
+<p>MPM可以与刚体动力学耦合，实现刚体-变形体相互作用。</p>
+<p><strong>刚体表示</strong>：</p>
+<ul>
+<li>质心位置：$\mathbf{x}_c$</li>
+<li>姿态四元数：$\mathbf{q}$</li>
+<li>线速度：$\mathbf{v}_c$</li>
+<li>角速度：$\boldsymbol{\omega}$</li>
+</ul>
+<p><strong>约束施加</strong>：
+对于附着在刚体上的粒子：
+$$\mathbf{v}_p = \mathbf{v}_c + \boldsymbol{\omega} \times (\mathbf{x}_p - \mathbf{x}_c)$$
+<strong>碰撞处理</strong>：</p>
+<ol>
+<li>检测粒子与刚体的碰撞</li>
+<li>计算冲量响应</li>
+<li>更新粒子和刚体的速度</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 刚体约束</span>
+<span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">constrained_particles</span><span class="p">:</span>
+    <span class="c1"># 计算刚体上对应点的速度</span>
+    <span class="n">r</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">-</span> <span class="n">rigid_body</span><span class="o">.</span><span class="n">center</span>
+    <span class="n">v_rigid</span> <span class="o">=</span> <span class="n">rigid_body</span><span class="o">.</span><span class="n">velocity</span> <span class="o">+</span> <span class="n">cross</span><span class="p">(</span><span class="n">rigid_body</span><span class="o">.</span><span class="n">omega</span><span class="p">,</span> <span class="n">r</span><span class="p">)</span>
+
+    <span class="c1"># 约束粒子速度</span>
+    <span class="n">v</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">=</span> <span class="n">v_rigid</span>
+</code></pre></div>
+
+<h3 id="854">8.5.4 接触力模型</h3>
+<p>MPM天然处理自碰撞，但有时需要额外的接触力模型。</p>
+<p><strong>罚函数方法</strong>：
+当检测到穿透时，施加罚力：
+$$\mathbf{f}_{penalty} = k_{penalty} \cdot d_{penetration} \cdot \mathbf{n}$$
+<strong>摩擦力</strong>：
+使用库仑摩擦模型：
+$$||\mathbf{f}_t|| \leq \mu ||\mathbf{f}_n||$$
+其中$\mu$是摩擦系数。</p>
+<p><strong>粘附力</strong>：
+模拟材料之间的粘附：
+$$\mathbf{f}_{adhesion} = -k_{adhesion} \cdot A_{contact} \cdot \mathbf{n}$$</p>
+<h2 id="86">8.6 数值断裂</h2>
+<h3 id="861-cdm">8.6.1 连续损伤力学(CDM)</h3>
+<p>连续损伤力学通过引入损伤变量$d \in [0,1]$来描述材料的退化。</p>
+<p><strong>损伤演化方程</strong>：
+$$\dot{d} = \frac{\langle f(\varepsilon) - \kappa \rangle}{\eta}$$
+其中$f$是损伤加载函数，$\kappa$是损伤阈值，$\eta$是粘性参数。</p>
+<p><strong>有效应力</strong>：
+$$\boldsymbol{\sigma}_{effective} = (1-d)\boldsymbol{\sigma}_{undamaged}$$
+<strong>实现步骤</strong>：</p>
+<ol>
+<li>计算应变或应力指标</li>
+<li>更新损伤变量</li>
+<li>修正应力响应</li>
+<li>当$d \approx 1$时，粒子失效</li>
+</ol>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 损伤更新</span>
+<span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">particles</span><span class="p">:</span>
+    <span class="c1"># 计算等效应变</span>
+    <span class="n">epsilon_eq</span> <span class="o">=</span> <span class="n">compute_equivalent_strain</span><span class="p">(</span><span class="n">F</span><span class="p">[</span><span class="n">p</span><span class="p">])</span>
+
+    <span class="c1"># 更新损伤变量</span>
+    <span class="k">if</span> <span class="n">epsilon_eq</span> <span class="o">&gt;</span> <span class="n">damage_threshold</span><span class="p">:</span>
+        <span class="n">damage</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">damage</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">damage_rate</span> <span class="o">*</span> <span class="p">(</span><span class="n">epsilon_eq</span> <span class="o">-</span> <span class="n">damage_threshold</span><span class="p">))</span>
+
+    <span class="c1"># 修正应力</span>
+    <span class="n">stress</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">*=</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">damage</span><span class="p">[</span><span class="n">p</span><span class="p">])</span>
+
+    <span class="c1"># 检查失效</span>
+    <span class="k">if</span> <span class="n">damage</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mf">0.99</span><span class="p">:</span>
+        <span class="n">particle_active</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
+</code></pre></div>
+
+<h3 id="862">8.6.2 相场断裂模型</h3>
+<p>相场方法使用连续场$\phi \in [0,1]$表示裂纹，避免了显式追踪裂纹表面。</p>
+<p><strong>能量泛函</strong>：
+$$\Psi = \int_\Omega g(\phi)\psi^e(\boldsymbol{\varepsilon}) \, dV + G_c\int_\Omega \left(\frac{\phi^2}{2l} + \frac{l}{2}|\nabla\phi|^2\right) \, dV$$
+其中$g(\phi) = (1-\phi)^2$是退化函数，$G_c$是断裂能，$l$是长度尺度。</p>
+<p><strong>演化方程</strong>：
+$$\frac{\partial \phi}{\partial t} = -M\frac{\delta \Psi}{\delta \phi}$$
+<strong>MPM实现</strong>：</p>
+<ol>
+<li>在粒子上存储相场值</li>
+<li>通过网格求解相场方程</li>
+<li>根据相场值修正材料响应</li>
+</ol>
+<h3 id="863-cpic">8.6.3 CPIC方法</h3>
+<p>Compatible PIC (CPIC)方法通过维护粒子之间的连接关系来处理断裂。</p>
+<p><strong>连接矩阵</strong>：
+维护粒子对之间的连接强度：
+$$C_{ij} \in [0,1]$$
+<strong>断裂准则</strong>：
+当应变超过临界值时，减少连接强度：
+$$C_{ij} = \max(0, C_{ij} - \Delta t \cdot R(\varepsilon_{ij}))$$
+<strong>力的计算</strong>：
+只在连接的粒子之间传递力：
+$$\mathbf{f}_i = \sum_j C_{ij} \mathbf{f}_{ij}$$</p>
+<h3 id="864">8.6.4 断裂准则</h3>
+<p>不同的断裂准则适用于不同的材料：</p>
+<p><strong>最大主应力准则</strong>：
+$$\sigma_1 &gt; \sigma_{critical}$$
+适用于脆性材料。</p>
+<p><strong>最大主应变准则</strong>：
+$$\varepsilon_1 &gt; \varepsilon_{critical}$$
+适用于延性材料。</p>
+<p><strong>能量释放率准则</strong>：
+$$G &gt; G_c$$
+基于Griffith断裂理论。</p>
+<p><strong>J积分准则</strong>：
+用于评估裂纹尖端的应力强度因子。</p>
+<p><strong>实现示例</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 基于主应力的断裂</span>
+<span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">particles</span><span class="p">:</span>
+    <span class="c1"># SVD分解得到主应力</span>
+    <span class="n">U</span><span class="p">,</span> <span class="n">S</span><span class="p">,</span> <span class="n">V</span> <span class="o">=</span> <span class="n">svd</span><span class="p">(</span><span class="n">stress</span><span class="p">[</span><span class="n">p</span><span class="p">])</span>
+    <span class="n">max_principal_stress</span> <span class="o">=</span> <span class="n">S</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+
+    <span class="c1"># 检查断裂准则</span>
+    <span class="k">if</span> <span class="n">max_principal_stress</span> <span class="o">&gt;</span> <span class="n">fracture_threshold</span><span class="p">:</span>
+        <span class="c1"># 标记粒子断裂</span>
+        <span class="n">fractured</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="c1"># 释放应力</span>
+        <span class="n">stress</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">*=</span> <span class="n">stress_release_factor</span>
+
+        <span class="c1"># 可选：生成裂纹粒子</span>
+        <span class="k">if</span> <span class="n">generate_crack_particles</span><span class="p">:</span>
+            <span class="n">create_crack_particles</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">p</span><span class="p">],</span> <span class="n">U</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">])</span>  <span class="c1"># 沿主应力方向</span>
+</code></pre></div>
+
+<h2 id="87-mpm">8.7 隐式MPM</h2>
+<h3 id="871">8.7.1 隐式时间积分</h3>
+<p>当模拟刚性材料（高杨氏模量）或需要大时间步长时，显式MPM会遇到稳定性问题。隐式MPM通过求解非线性系统来保证无条件稳定性。</p>
+<p><strong>隐式欧拉格式</strong>：
+$$\mathbf{v}^{n+1} = \mathbf{v}^n + \Delta t \mathbf{M}^{-1}[\mathbf{f}_{ext} - \mathbf{f}_{int}(\mathbf{x}^{n+1})]$$
+$$\mathbf{x}^{n+1} = \mathbf{x}^n + \Delta t \mathbf{v}^{n+1}$$
+这导致非线性系统：
+$$\mathbf{g}(\mathbf{v}^{n+1}) = \mathbf{M}\mathbf{v}^{n+1} - \mathbf{M}\mathbf{v}^n - \Delta t[\mathbf{f}_{ext} - \mathbf{f}_{int}(\mathbf{x}^n + \Delta t \mathbf{v}^{n+1})] = 0$$
+<strong>Newton-Raphson求解</strong>：
+线性化系统：
+$$\mathbf{J}\Delta\mathbf{v} = -\mathbf{g}(\mathbf{v}^k)$$
+其中雅可比矩阵：
+$$\mathbf{J} = \frac{\partial \mathbf{g}}{\partial \mathbf{v}} = \mathbf{M} + \Delta t^2 \frac{\partial \mathbf{f}_{int}}{\partial \mathbf{x}}$$</p>
+<h3 id="872">8.7.2 切线刚度矩阵</h3>
+<p>计算切线刚度矩阵是隐式MPM的关键。对于超弹性材料：</p>
+<p><strong>应力导数</strong>：
+$$\frac{\partial \mathbf{P}}{\partial \mathbf{F}} = \frac{\partial^2 \psi}{\partial \mathbf{F} \partial \mathbf{F}} = \mathbb{C}$$
+这是四阶张量，称为切线模量。</p>
+<p><strong>Neo-Hookean的切线模量</strong>：
+$$\mathbb{C}_{ijkl} = \mu\delta_{ik}\delta_{jl} + (\mu - \lambda\ln J)F^{-1}_{ji}F^{-1}_{lk} + \lambda F^{-1}_{ji}F^{-1}_{lk}$$
+<strong>网格级别的刚度矩阵</strong>：
+$$\mathbf{K}_{IJ} = \sum_p V_p \nabla N_I(\mathbf{x}_p) : \mathbb{C}_p : \nabla N_J(\mathbf{x}_p)$$</p>
+<h3 id="873-newton-raphson">8.7.3 Newton-Raphson迭代</h3>
+<p>隐式MPM的Newton迭代过程：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">implicit_mpm_step</span><span class="p">():</span>
+    <span class="c1"># 初始猜测</span>
+    <span class="n">v_new</span> <span class="o">=</span> <span class="n">v_old</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">f_ext</span> <span class="o">/</span> <span class="n">mass</span>
+
+    <span class="k">for</span> <span class="n">newton_iter</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iterations</span><span class="p">):</span>
+        <span class="c1"># 计算残差</span>
+        <span class="n">x_trial</span> <span class="o">=</span> <span class="n">x_old</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">v_new</span>
+        <span class="n">f_int</span> <span class="o">=</span> <span class="n">compute_internal_forces</span><span class="p">(</span><span class="n">x_trial</span><span class="p">)</span>
+        <span class="n">residual</span> <span class="o">=</span> <span class="n">mass</span> <span class="o">*</span> <span class="p">(</span><span class="n">v_new</span> <span class="o">-</span> <span class="n">v_old</span><span class="p">)</span> <span class="o">-</span> <span class="n">dt</span> <span class="o">*</span> <span class="p">(</span><span class="n">f_ext</span> <span class="o">-</span> <span class="n">f_int</span><span class="p">)</span>
+
+        <span class="c1"># 检查收敛</span>
+        <span class="k">if</span> <span class="n">norm</span><span class="p">(</span><span class="n">residual</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">tolerance</span><span class="p">:</span>
+            <span class="k">break</span>
+
+        <span class="c1"># 计算切线刚度矩阵</span>
+        <span class="n">K</span> <span class="o">=</span> <span class="n">compute_tangent_stiffness</span><span class="p">(</span><span class="n">x_trial</span><span class="p">)</span>
+        <span class="n">J</span> <span class="o">=</span> <span class="n">mass</span> <span class="o">+</span> <span class="n">dt</span><span class="o">^</span><span class="mi">2</span> <span class="o">*</span> <span class="n">K</span>
+
+        <span class="c1"># 求解线性系统</span>
+        <span class="n">delta_v</span> <span class="o">=</span> <span class="n">solve</span><span class="p">(</span><span class="n">J</span><span class="p">,</span> <span class="o">-</span><span class="n">residual</span><span class="p">)</span>
+
+        <span class="c1"># 线搜索（可选）</span>
+        <span class="n">alpha</span> <span class="o">=</span> <span class="n">line_search</span><span class="p">(</span><span class="n">v_new</span><span class="p">,</span> <span class="n">delta_v</span><span class="p">)</span>
+        <span class="n">v_new</span> <span class="o">+=</span> <span class="n">alpha</span> <span class="o">*</span> <span class="n">delta_v</span>
+
+    <span class="k">return</span> <span class="n">v_new</span>
+</code></pre></div>
+
+<p><strong>线搜索策略</strong>：
+为确保收敛，使用Armijo线搜索：
+$$||\mathbf{g}(\mathbf{v} + \alpha\Delta\mathbf{v})|| &lt; (1 - c\alpha)||\mathbf{g}(\mathbf{v})||$$
+其中$c \in (0, 0.5)$是常数。</p>
+<h3 id="874">8.7.4 大变形处理</h3>
+<p>大变形下的隐式MPM需要特殊处理：</p>
+<p><strong>几何非线性</strong>：
+变形梯度的增量更新：
+$$\mathbf{F}^{n+1} = (\mathbf{I} + \Delta t \nabla \mathbf{v}^{n+1})\mathbf{F}^n$$
+这是关于$\mathbf{v}^{n+1}$的非线性函数。</p>
+<p><strong>共旋框架</strong>：
+使用共旋坐标系减少非线性：</p>
+<ol>
+<li>提取旋转：$\mathbf{F} = \mathbf{R}\mathbf{S}$</li>
+<li>在局部坐标系求解</li>
+<li>转换回全局坐标系</li>
+</ol>
+<p><strong>增量形式</strong>：
+使用增量变形梯度：
+$$\delta\mathbf{F} = \Delta t \nabla\delta\mathbf{v} \cdot \mathbf{F}^n$$
+<strong>自适应时间步长</strong>：
+根据Newton迭代的收敛性调整时间步长：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">if</span> <span class="n">newton_iterations</span> <span class="o">&gt;</span> <span class="n">max_iter</span> <span class="o">*</span> <span class="mf">0.8</span><span class="p">:</span>
+    <span class="n">dt</span> <span class="o">*=</span> <span class="mf">0.5</span>  <span class="c1"># 减小时间步长</span>
+<span class="k">elif</span> <span class="n">newton_iterations</span> <span class="o">&lt;</span> <span class="n">max_iter</span> <span class="o">*</span> <span class="mf">0.2</span><span class="p">:</span>
+    <span class="n">dt</span> <span class="o">*=</span> <span class="mf">1.2</span>  <span class="c1"># 增大时间步长</span>
+</code></pre></div>
+
+<h2 id="88-taichi2">8.8 高级Taichi特性（2）</h2>
+<h3 id="881">8.8.1 稀疏数据结构设计</h3>
+<p>MPM的计算域通常是稀疏的，使用稀疏数据结构可以大幅提升性能。</p>
+<p><strong>SPGrid (Setaluri et al. 2014)</strong>：
+利用虚拟内存的分页机制：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">data_oriented</span>
+<span class="k">class</span> <span class="nc">SPGrid</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">resolution</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">resolution</span> <span class="o">=</span> <span class="n">resolution</span>
+        <span class="c1"># 使用位掩码管理稀疏块</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mask</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">i32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="n">resolution</span><span class="o">//</span><span class="n">block_size</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">)</span>
+
+        <span class="c1"># 动态分配</span>
+        <span class="n">ti</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">ijk</span><span class="p">,</span> <span class="n">resolution</span><span class="o">//</span><span class="n">block_size</span><span class="p">)</span><span class="o">.</span><span class="n">dense</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">ijk</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span><span class="o">.</span><span class="n">place</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>优势</strong>：</p>
+<ul>
+<li>内存自动管理</li>
+<li>缓存友好的访问模式</li>
+<li>支持动态拓扑变化</li>
+</ul>
+<p><strong>OpenVDB风格的层次结构</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Taichi中的层次稀疏网格</span>
+<span class="n">grid</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">)</span>
+<span class="n">ti</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">ijk</span><span class="p">,</span> <span class="mi">64</span><span class="p">)</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">ijk</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span><span class="o">.</span><span class="n">dense</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">ijk</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span><span class="o">.</span><span class="n">place</span><span class="p">(</span><span class="n">grid</span><span class="p">)</span>
+</code></pre></div>
+
+<p>三层结构：</p>
+<ol>
+<li>顶层：64³的指针网格</li>
+<li>中层：8³的指针块</li>
+<li>底层：8³的密集数据</li>
+</ol>
+<h3 id="882">8.8.2 动态内存分配</h3>
+<p>Taichi支持动态内存管理，适合粒子数量变化的场景。</p>
+<p><strong>动态粒子数组</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">data_oriented</span>
+<span class="k">class</span> <span class="nc">ParticleSystem</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">max_particles</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_particles</span> <span class="o">=</span> <span class="n">max_particles</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_particles</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">i32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">())</span>
+
+        <span class="c1"># 动态数组</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">v</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">F</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Matrix</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">)</span>
+
+        <span class="c1"># 使用动态SNode</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">particle</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">dynamic</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">i</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_particles</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">particle</span><span class="o">.</span><span class="n">place</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">F</span><span class="p">)</span>
+
+    <span class="nd">@ti</span><span class="o">.</span><span class="n">kernel</span>
+    <span class="k">def</span> <span class="nf">add_particle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pos</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">vector</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">)):</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">atomic_add</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_particles</span><span class="p">[</span><span class="kc">None</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">pos</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">F</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Matrix</span><span class="o">.</span><span class="n">identity</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>内存池管理</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">data_oriented</span>
+<span class="k">class</span> <span class="nc">MemoryPool</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">chunk_size</span><span class="p">,</span> <span class="n">max_chunks</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span> <span class="o">=</span> <span class="n">chunk_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">free_list</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">i32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="n">max_chunks</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_free</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">i32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">())</span>
+
+    <span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>
+    <span class="k">def</span> <span class="nf">allocate</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ti</span><span class="o">.</span><span class="n">i32</span><span class="p">:</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">atomic_sub</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_free</span><span class="p">[</span><span class="kc">None</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">free_list</span><span class="p">[</span><span class="n">n</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">return</span> <span class="o">-</span><span class="mi">1</span>  <span class="c1"># 分配失败</span>
+
+    <span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>
+    <span class="k">def</span> <span class="nf">deallocate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">chunk_id</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">i32</span><span class="p">):</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">atomic_add</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_free</span><span class="p">[</span><span class="kc">None</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">free_list</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="n">chunk_id</span>
+</code></pre></div>
+
+<h3 id="883">8.8.3 层次化网格</h3>
+<p>层次化网格可以在不同尺度上高效处理物理现象。</p>
+<p><strong>自适应网格细化(AMR)</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">data_oriented</span>
+<span class="k">class</span> <span class="nc">AdaptiveGrid</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># 多层级网格</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">level0</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">level1</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">128</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">level2</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">256</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="mi">256</span><span class="p">))</span>
+
+        <span class="c1"># 细化标记</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">refine_flag</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">i32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">))</span>
+
+    <span class="nd">@ti</span><span class="o">.</span><span class="n">kernel</span>
+    <span class="k">def</span> <span class="nf">adaptive_refine</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">level0</span><span class="p">:</span>
+            <span class="c1"># 检查细化准则（如梯度）</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">needs_refinement</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">refine_flag</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="c1"># 插值到细网格</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">interpolate_to_fine</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+
+    <span class="nd">@ti</span><span class="o">.</span><span class="n">func</span>
+    <span class="k">def</span> <span class="nf">needs_refinement</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ti</span><span class="o">.</span><span class="n">i32</span><span class="p">:</span>
+        <span class="c1"># 基于梯度的细化准则</span>
+        <span class="n">grad</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">level0</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">]</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">level0</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="n">j</span><span class="p">,</span><span class="n">k</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">grad</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">refine_threshold</span>
+</code></pre></div>
+
+<p><strong>多重网格加速</strong>：
+用于隐式求解器：</p>
+<div class="codehilite"><pre><span></span><code><span class="nd">@ti</span><span class="o">.</span><span class="n">kernel</span>
+<span class="k">def</span> <span class="nf">multigrid_vcycle</span><span class="p">(</span><span class="n">level</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">i32</span><span class="p">):</span>
+    <span class="c1"># 前光滑</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_smooth</span><span class="p">):</span>
+        <span class="n">smooth</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">level</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="c1"># 限制到粗网格</span>
+        <span class="n">restrict</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="n">level</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="c1"># 递归求解</span>
+        <span class="n">multigrid_vcycle</span><span class="p">(</span><span class="n">level</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="c1"># 延拓到细网格</span>
+        <span class="n">prolongate</span><span class="p">(</span><span class="n">level</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">level</span><span class="p">)</span>
+
+    <span class="c1"># 后光滑</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_smooth</span><span class="p">):</span>
+        <span class="n">smooth</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+</code></pre></div>
+
+<h3 id="884">8.8.4 自定义数据布局</h3>
+<p>优化内存访问模式对性能至关重要。</p>
+<p><strong>AoS vs SoA布局</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Array of Structures (AoS)</span>
+<span class="nd">@ti</span><span class="o">.</span><span class="n">dataclass</span>
+<span class="k">class</span> <span class="nc">Particle</span><span class="p">:</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">vector</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">)</span>
+    <span class="n">v</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">vector</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">)</span>
+    <span class="n">m</span><span class="p">:</span> <span class="n">ti</span><span class="o">.</span><span class="n">f32</span>
+
+<span class="n">particles_aos</span> <span class="o">=</span> <span class="n">Particle</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="n">n_particles</span><span class="p">)</span>
+
+<span class="c1"># Structure of Arrays (SoA)</span>
+<span class="n">x_soa</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="n">n_particles</span><span class="p">)</span>
+<span class="n">v_soa</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="n">n_particles</span><span class="p">)</span>
+<span class="n">m_soa</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="n">n_particles</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>性能考虑</strong>：</p>
+<ul>
+<li>AoS：空间局部性好，适合访问单个粒子的所有属性</li>
+<li>SoA：向量化友好，适合批量处理同一属性</li>
+</ul>
+<p><strong>自定义布局示例</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 块状布局，结合AoS和SoA的优势</span>
+<span class="n">block_size</span> <span class="o">=</span> <span class="mi">32</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">)</span>
+<span class="n">v</span> <span class="o">=</span> <span class="n">ti</span><span class="o">.</span><span class="n">Vector</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">ti</span><span class="o">.</span><span class="n">f32</span><span class="p">)</span>
+
+<span class="c1"># 二级结构：块内SoA，块间数组</span>
+<span class="n">ti</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">dense</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">i</span><span class="p">,</span> <span class="n">n_particles</span><span class="o">//</span><span class="n">block_size</span><span class="p">)</span><span class="o">.</span><span class="n">dense</span><span class="p">(</span><span class="n">ti</span><span class="o">.</span><span class="n">j</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span><span class="o">.</span><span class="n">place</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>内存对齐</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 确保缓存行对齐</span>
+<span class="nd">@ti</span><span class="o">.</span><span class="n">kernel</span>
+<span class="k">def</span> <span class="nf">aligned_access</span><span class="p">():</span>
+    <span class="c1"># Taichi自动处理对齐</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_particles</span><span class="p">):</span>
+        <span class="c1"># 连续访问，利用缓存</span>
+        <span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">v</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">dt</span>
+</code></pre></div>
+
+<h2 id="_1">本章小结</h2>
+<p>物质点法(MPM)作为混合欧拉-拉格朗日方法的代表，成功结合了两种视角的优势。本章深入探讨了MPM的理论基础、算法实现和工程应用：</p>
+<p><strong>核心概念</strong>：</p>
+<ol>
+<li><strong>MPM基础</strong>：粒子携带材料信息，网格用于动量更新，避免网格扭曲和数值耗散</li>
+<li><strong>MLS-MPM</strong>：通过移动最小二乘简化实现，仅需88行代码，性能提升50%</li>
+<li><strong>本构模型</strong>：支持弹性、塑性、流体等多种材料，通过SVD实现屈服准则</li>
+<li><strong>数值断裂</strong>：连续损伤力学、相场方法、CPIC等断裂模拟技术</li>
+<li><strong>隐式积分</strong>：处理刚性材料和大时间步长，Newton-Raphson迭代求解</li>
+</ol>
+<p><strong>关键公式</strong>：</p>
+<ul>
+<li>弱形式：$\int_\Omega \rho \mathbf{a} \cdot \mathbf{w} \, dV = -\int_\Omega \boldsymbol{\sigma} : \nabla \mathbf{w} \, dV + \int_\Omega \rho \mathbf{b} \cdot \mathbf{w} \, dV$</li>
+<li>变形梯度更新：$\mathbf{F}^{n+1} = (\mathbf{I} + \Delta t \mathbf{C}^n) \mathbf{F}^n$</li>
+<li>Neo-Hookean应力：$\mathbf{P} = \mu(\mathbf{F} - \mathbf{F}^{-T}) + \lambda\ln(J)\mathbf{F}^{-T}$</li>
+<li>塑性返回映射：通过SVD夹持奇异值到屈服面</li>
+</ul>
+<p><strong>实现要点</strong>：</p>
+<ul>
+<li>形函数选择：二次B样条提供精度-效率平衡</li>
+<li>P2G/G2P传输：APIC保证角动量守恒</li>
+<li>稀疏数据结构：SPGrid或OpenVDB处理大规模稀疏域</li>
+<li>性能优化：SoA布局、向量化、多层级网格</li>
+</ul>
+<h2 id="_2">练习题</h2>
+<h3 id="_3">基础题</h3>
+<p><strong>练习8.1</strong>：推导二维情况下二次B样条基函数的显式表达式，并计算其梯度。</p>
+<p><em>提示</em>：从一维B样条$N(x)$出发，使用张量积构造二维基函数。</p>
+<details>
+<summary>答案</summary>
+<p>一维二次B样条：
+$$N(x) = \begin{cases}
+\frac{3}{4} - x^2 &amp; |x| \leq \frac{1}{2} \\
+\frac{1}{2}(\frac{3}{2} - |x|)^2 &amp; \frac{1}{2} &lt; |x| \leq \frac{3}{2} \\
+0 &amp; |x| &gt; \frac{3}{2}
+\end{cases}$$
+二维基函数：
+$$N_{ij}(x, y) = N(x - x_i)N(y - y_j)$$
+梯度：
+$$\nabla N_{ij} = \begin{bmatrix}
+N'(x - x_i)N(y - y_j) \\
+N(x - x_i)N'(y - y_j)
+\end{bmatrix}$$
+其中$N'(x) = -2x$当$|x| \leq \frac{1}{2}$，$N'(x) = -(\frac{3}{2} - |x|)\text{sign}(x)$当$\frac{1}{2} &lt; |x| \leq \frac{3}{2}$。</p>
+</details>
+<p><strong>练习8.2</strong>：证明MLS-MPM中的$\mathbf{C}_p$矩阵确实近似了速度梯度$\nabla\mathbf{v}$。</p>
+<p><em>提示</em>：从APIC的推导出发，考虑仿射速度场$\mathbf{v}(\mathbf{x}) = \mathbf{v}_p + \mathbf{C}_p(\mathbf{x} - \mathbf{x}_p)$。</p>
+<details>
+<summary>答案</summary>
+<p>仿射速度场的梯度：
+$$\nabla\mathbf{v} = \nabla[\mathbf{v}_p + \mathbf{C}_p(\mathbf{x} - \mathbf{x}_p)] = \mathbf{C}_p$$
+在G2P传输中：
+$$\mathbf{C}_p = \sum_i \mathbf{v}_i \otimes \nabla N_i(\mathbf{x}_p)$$
+这正是速度场在粒子位置的梯度的加权平均，因此$\mathbf{C}_p \approx \nabla\mathbf{v}|_{\mathbf{x}_p}$。</p>
+</details>
+<p><strong>练习8.3</strong>：计算Neo-Hookean模型在单轴拉伸下的应力-应变关系。设拉伸比为$\lambda$，其他方向自由变形。</p>
+<p><em>提示</em>：利用不可压缩条件$\det(\mathbf{F}) = 1$。</p>
+<details>
+<summary>答案</summary>
+<p>单轴拉伸的变形梯度：
+$$\mathbf{F} = \text{diag}(\lambda, \lambda^{-1/2}, \lambda^{-1/2})$$
+保证$\det(\mathbf{F}) = \lambda \cdot \lambda^{-1/2} \cdot \lambda^{-1/2} = 1$。</p>
+<p>Neo-Hookean应力：
+$$P_{11} = \mu(\lambda - \lambda^{-1})$$
+工程应力：
+$$\sigma = \frac{P_{11}}{\lambda} = \mu(1 - \lambda^{-2})$$</p>
+</details>
+<h3 id="_4">挑战题</h3>
+<p><strong>练习8.4</strong>：设计一个自适应粒子细化算法，当检测到大变形时自动增加粒子密度。给出细化准则和粒子分裂策略。</p>
+<p><em>提示</em>：考虑基于变形梯度的行列式或最大主伸长比的准则。</p>
+<details>
+<summary>答案</summary>
+<p>细化准则：</p>
+<ol>
+<li>体积变化：$|\det(\mathbf{F}) - 1| &gt; \theta_V$</li>
+<li>最大主伸长：$\lambda_{\max} &gt; \theta_{\lambda}$</li>
+<li>塑性应变：$\varepsilon_p &gt; \theta_p$</li>
+</ol>
+<p>分裂策略：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">split_particle</span><span class="p">(</span><span class="n">p</span><span class="p">):</span>
+    <span class="c1"># 获取主方向</span>
+    <span class="n">U</span><span class="p">,</span> <span class="n">S</span><span class="p">,</span> <span class="n">V</span> <span class="o">=</span> <span class="n">svd</span><span class="p">(</span><span class="n">F</span><span class="p">[</span><span class="n">p</span><span class="p">])</span>
+
+    <span class="c1"># 沿最大伸长方向分裂</span>
+    <span class="n">direction</span> <span class="o">=</span> <span class="n">U</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span>
+    <span class="n">offset</span> <span class="o">=</span> <span class="mf">0.25</span> <span class="o">*</span> <span class="n">dx</span> <span class="o">*</span> <span class="n">direction</span>
+
+    <span class="c1"># 创建子粒子</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">]:</span>
+        <span class="n">new_p</span> <span class="o">=</span> <span class="n">create_particle</span><span class="p">()</span>
+        <span class="n">x</span><span class="p">[</span><span class="n">new_p</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">+</span> <span class="n">i</span> <span class="o">*</span> <span class="n">offset</span>
+        <span class="n">v</span><span class="p">[</span><span class="n">new_p</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span><span class="p">[</span><span class="n">p</span><span class="p">]</span>
+        <span class="n">F</span><span class="p">[</span><span class="n">new_p</span><span class="p">]</span> <span class="o">=</span> <span class="n">F</span><span class="p">[</span><span class="n">p</span><span class="p">]</span>
+        <span class="n">m</span><span class="p">[</span><span class="n">new_p</span><span class="p">]</span> <span class="o">=</span> <span class="n">m</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">/</span> <span class="mi">2</span>
+        <span class="n">V</span><span class="p">[</span><span class="n">new_p</span><span class="p">]</span> <span class="o">=</span> <span class="n">V</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">/</span> <span class="mi">2</span>
+
+    <span class="c1"># 删除原粒子</span>
+    <span class="n">delete_particle</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+</code></pre></div>
+
+</details>
+<p><strong>练习8.5</strong>：推导并实现各向异性材料的MPM本构模型，考虑纤维方向的影响。</p>
+<p><em>提示</em>：使用结构张量$\mathbf{M} = \mathbf{a}_0 \otimes \mathbf{a}_0$表示纤维方向。</p>
+<details>
+<summary>答案</summary>
+<p>各向异性超弹性模型：
+$$\psi = \psi_{iso}(\mathbf{F}) + \psi_{aniso}(\mathbf{F}, \mathbf{a}_0)$$
+其中各向异性部分：
+$$\psi_{aniso} = \frac{k_1}{2k_2}[\exp(k_2(I_4 - 1)^2) - 1]$$
+$I_4 = \mathbf{a}_0 \cdot (\mathbf{C} \mathbf{a}_0)$是纤维伸长的平方。</p>
+<p>应力：
+$$\mathbf{P} = \mathbf{P}_{iso} + 2k_1(I_4 - 1)\exp(k_2(I_4 - 1)^2)\mathbf{F}\mathbf{a}_0 \otimes \mathbf{a}_0$$</p>
+</details>
+<p><strong>练习8.6</strong>：分析MPM中的能量守恒性质。证明在无外力、无阻尼的情况下，APIC传输保证总角动量守恒。</p>
+<p><em>提示</em>：计算系统总角动量$\mathbf{L} = \sum_p m_p \mathbf{x}_p \times \mathbf{v}_p$的时间导数。</p>
+<details>
+<summary>答案</summary>
+<p>系统总角动量：
+$$\mathbf{L} = \sum_p m_p \mathbf{x}_p \times \mathbf{v}_p$$
+P2G后网格角动量：
+$$\mathbf{L}_g = \sum_i m_i \mathbf{x}_i \times \mathbf{v}_i$$
+由于APIC传输包含了$\mathbf{C}_p$项：
+$$\mathbf{v}_i = \frac{1}{m_i}\sum_p w_{ip}m_p[\mathbf{v}_p + \mathbf{C}_p(\mathbf{x}_i - \mathbf{x}_p)]$$
+可以证明：
+$$\mathbf{L}_g = \mathbf{L}_p$$</p>
+<p>G2P后，由于使用相同的权重和$\mathbf{C}_p$更新，角动量继续守恒。</p>
+</details>
+<p><strong>练习8.7</strong>：设计一个MPM-FEM耦合算法，在小变形区域使用FEM，大变形区域使用MPM。</p>
+<p><em>提示</em>：考虑过渡区域的处理和动量传递。</p>
+<details>
+<summary>答案</summary>
+<p>耦合策略：</p>
+<ol>
+<li><strong>区域划分</strong>：基于变形梯度的行列式判断</li>
+<li><strong>过渡区</strong>：同时存在粒子和网格节点</li>
+<li><strong>动量交换</strong>：
+   - FEM→MPM：在FEM边界生成虚拟粒子
+   - MPM→FEM：粒子贡献作为FEM的边界力</li>
+</ol>
+<p>算法框架：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">def</span> <span class="nf">coupled_step</span><span class="p">():</span>
+    <span class="c1"># FEM区域</span>
+    <span class="n">K_fem</span> <span class="o">=</span> <span class="n">assemble_stiffness_matrix</span><span class="p">()</span>
+    <span class="n">f_fem</span> <span class="o">=</span> <span class="n">assemble_force_vector</span><span class="p">()</span>
+
+    <span class="c1"># MPM贡献到FEM边界</span>
+    <span class="n">f_mpm_to_fem</span> <span class="o">=</span> <span class="n">compute_mpm_boundary_force</span><span class="p">()</span>
+    <span class="n">f_fem</span> <span class="o">+=</span> <span class="n">f_mpm_to_fem</span>
+
+    <span class="c1"># 求解FEM</span>
+    <span class="n">u_fem</span> <span class="o">=</span> <span class="n">solve</span><span class="p">(</span><span class="n">K_fem</span><span class="p">,</span> <span class="n">f_fem</span><span class="p">)</span>
+
+    <span class="c1"># FEM速度作为MPM边界条件</span>
+    <span class="n">v_fem_boundary</span> <span class="o">=</span> <span class="n">differentiate</span><span class="p">(</span><span class="n">u_fem</span><span class="p">)</span> <span class="o">/</span> <span class="n">dt</span>
+
+    <span class="c1"># MPM步骤（使用FEM边界速度）</span>
+    <span class="n">mpm_step_with_boundary</span><span class="p">(</span><span class="n">v_fem_boundary</span><span class="p">)</span>
+</code></pre></div>
+
+</details>
+<p><strong>练习8.8</strong>：实现一个基于机器学习的本构模型，使用神经网络替代解析的应力-应变关系。</p>
+<p><em>提示</em>：网络输入为$\mathbf{F}$或其不变量，输出为$\mathbf{P}$。</p>
+<details>
+<summary>答案</summary>
+<p>神经网络本构模型：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">class</span> <span class="nc">NeuralConstitutive</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="c1"># 输入：F的不变量 (I1, I2, I3)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">net</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">64</span><span class="p">),</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(),</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">),</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(),</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">9</span><span class="p">)</span>  <span class="c1"># 输出P的9个分量</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">F</span><span class="p">):</span>
+        <span class="c1"># 计算不变量</span>
+        <span class="n">I1</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">trace</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">F</span><span class="p">)</span>
+        <span class="n">I2</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="n">I1</span><span class="o">**</span><span class="mi">2</span> <span class="o">-</span> <span class="n">torch</span><span class="o">.</span><span class="n">trace</span><span class="p">((</span><span class="n">F</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">F</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span>
+        <span class="n">I3</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">det</span><span class="p">(</span><span class="n">F</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span>
+
+        <span class="n">invariants</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">I1</span><span class="p">,</span> <span class="n">I2</span><span class="p">,</span> <span class="n">I3</span><span class="p">])</span>
+        <span class="n">P_vec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">net</span><span class="p">(</span><span class="n">invariants</span><span class="p">)</span>
+        <span class="n">P</span> <span class="o">=</span> <span class="n">P_vec</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+
+        <span class="c1"># 确保物理一致性</span>
+        <span class="n">P</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">enforce_symmetry</span><span class="p">(</span><span class="n">P</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">P</span>
+</code></pre></div>
+
+<p>训练数据来自：</p>
+<ol>
+<li>解析模型生成</li>
+<li>实验测量</li>
+<li>高精度仿真</li>
+</ol>
+</details>
+<h2 id="gotchas">常见陷阱与错误 (Gotchas)</h2>
+<ol>
+<li>
+<p><strong>粒子穿越网格边界</strong>：粒子离开计算域时需要正确处理，否则会导致段错误
+   - 解决：边界检查和粒子删除机制</p>
+</li>
+<li>
+<p><strong>变形梯度退化</strong>：$\det(\mathbf{F}) \leq 0$导致应力计算失败
+   - 解决：使用可逆有限元技术或SVD夹持</p>
+</li>
+<li>
+<p><strong>时间步长过大</strong>：CFL条件$\Delta t &lt; \frac{\Delta x}{c}$，其中$c = \sqrt{E/\rho}$
+   - 解决：自适应时间步长或隐式积分</p>
+</li>
+<li>
+<p><strong>能量不守恒</strong>：数值耗散导致能量损失
+   - 解决：使用APIC/MLS-MPM，辛积分器</p>
+</li>
+<li>
+<p><strong>内存爆炸</strong>：粒子数量动态增长导致内存不足
+   - 解决：粒子数量上限，自适应粒子管理</p>
+</li>
+<li>
+<p><strong>并行竞态</strong>：P2G阶段的原子操作性能瓶颈
+   - 解决：粒子排序，分块并行</p>
+</li>
+<li>
+<p><strong>边界条件不一致</strong>：网格边界条件与粒子运动冲突
+   - 解决：统一的边界处理策略</p>
+</li>
+<li>
+<p><strong>数值断裂不稳定</strong>：断裂后应力集中导致数值爆炸
+   - 解决：应力释放，损伤正则化</p>
+</li>
+</ol>
+<h2 id="_5">最佳实践检查清单</h2>
+<h3 id="_6">算法选择</h3>
+<ul>
+<li>[ ] 小变形：考虑使用FEM而非MPM</li>
+<li>[ ] 流固耦合：MLS-MPM统一框架</li>
+<li>[ ] 断裂模拟：CPIC或相场方法</li>
+<li>[ ] 大时间步长：隐式MPM</li>
+</ul>
+<h3 id="_7">参数设置</h3>
+<ul>
+<li>[ ] 粒子密度：每个单元2-4个粒子（2D），4-8个（3D）</li>
+<li>[ ] 形函数阶数：二次B样条（默认），三次（高精度）</li>
+<li>[ ] 时间步长：满足CFL条件，考虑材料刚度</li>
+<li>[ ] 网格分辨率：捕捉最小特征尺寸</li>
+</ul>
+<h3 id="_8">性能优化</h3>
+<ul>
+<li>[ ] 数据布局：SoA用于批量计算，AoS用于随机访问</li>
+<li>[ ] 稀疏结构：SPGrid或OpenVDB处理大规模稀疏域</li>
+<li>[ ] 并行策略：粒子排序减少原子操作冲突</li>
+<li>[ ] 内存管理：预分配，避免动态分配</li>
+</ul>
+<h3 id="_9">数值稳定性</h3>
+<ul>
+<li>[ ] 变形梯度监控：检测并处理退化情况</li>
+<li>[ ] 能量监控：跟踪系统总能量变化</li>
+<li>[ ] 残差检查：隐式求解器的收敛性</li>
+<li>[ ] 边界处理：确保边界条件的一致性</li>
+</ul>
+<h3 id="_10">验证与调试</h3>
+<ul>
+<li>[ ] 单元测试：本构模型、传输算子</li>
+<li>[ ] 收敛性测试：网格细化研究</li>
+<li>[ ] 守恒性检查：质量、动量、角动量</li>
+<li>[ ] 基准测试：与解析解或实验对比</li>
+</ul>
+            </article>
+            
+            <nav class="page-nav"><a href="./chapter7.html" class="nav-link prev">← 第七章：混合欧拉-拉格朗日视角（1）</a><a href="./chapter9.html" class="nav-link next">第九章：高性能计算 →</a></nav>
+        </main>
+    </div>
+</body>
+</html>
