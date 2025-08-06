@@ -12,10 +12,23 @@ $$\frac{D}{Dt} = \frac{\partial}{\partial t} + \mathbf{u} \cdot \nabla$$
 
 其中第一项 $\frac{\partial}{\partial t}$ 是局部时间导数，表示固定位置处物理量的时间变化率；第二项 $\mathbf{u} \cdot \nabla$ 是对流项，表示由于流体运动导致的物理量变化。
 
+**物质导数的物理意义**：考虑一个流体质点沿轨迹 $\mathbf{x}(t)$ 运动，其携带的物理量 $\phi$ 的变化率为：
+$$\frac{d\phi}{dt} = \frac{\partial \phi}{\partial t} + \frac{\partial \phi}{\partial x_i}\frac{dx_i}{dt} = \frac{\partial \phi}{\partial t} + u_i\frac{\partial \phi}{\partial x_i}$$
+
+这里使用了爱因斯坦求和约定。物质导数连接了拉格朗日描述（跟随质点）和欧拉描述（固定空间点）。
+
 例如，对于速度场的物质导数：
 $$\frac{D\mathbf{u}}{Dt} = \frac{\partial \mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\mathbf{u}$$
 
-这个对流项 $(\mathbf{u} \cdot \nabla)\mathbf{u}$ 是非线性的，也是Navier-Stokes方程数值求解的主要挑战之一。
+展开对流项的分量形式（以2D为例）：
+$$(\mathbf{u} \cdot \nabla)\mathbf{u} = \begin{pmatrix} u\frac{\partial u}{\partial x} + v\frac{\partial u}{\partial y} \\ u\frac{\partial v}{\partial x} + v\frac{\partial v}{\partial y} \end{pmatrix}$$
+
+这个对流项 $(\mathbf{u} \cdot \nabla)\mathbf{u}$ 是非线性的，也是Navier-Stokes方程数值求解的主要挑战之一。它导致了湍流等复杂现象的产生。
+
+**对流项的另一种理解**：使用向量恒等式，对流项可以改写为：
+$$(\mathbf{u} \cdot \nabla)\mathbf{u} = \nabla(\frac{|\mathbf{u}|^2}{2}) - \mathbf{u} \times (\nabla \times \mathbf{u})$$
+
+第一项是动能梯度，第二项包含涡量 $\boldsymbol{\omega} = \nabla \times \mathbf{u}$，体现了旋转效应对动量输送的影响。
 
 ### 4.1.2 不可压Navier-Stokes方程
 
@@ -28,13 +41,25 @@ $$\nabla \cdot \mathbf{u} = 0$$
 
 其中：
 - $\rho$ 是流体密度（对于不可压流体为常数）
-- $p$ 是压力
+- $p$ 是压力（实际上是压力除以密度，有压力势的量纲）
 - $\mu$ 是动力粘度
 - $\nu = \mu/\rho$ 是运动粘度
 - $\mathbf{g}$ 是重力加速度
 
 展开物质导数后，动量方程变为：
 $$\rho \left(\frac{\partial \mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\mathbf{u}\right) = -\nabla p + \mu \nabla^2 \mathbf{u} + \rho \mathbf{g}$$
+
+**无量纲化与Reynolds数**：通过特征尺度 $L$、特征速度 $U$ 和特征时间 $L/U$ 无量纲化，可得：
+$$\frac{\partial \mathbf{u}^*}{\partial t^*} + (\mathbf{u}^* \cdot \nabla^*)\mathbf{u}^* = -\nabla^* p^* + \frac{1}{Re} \nabla^{*2} \mathbf{u}^* + \frac{1}{Fr^2}\hat{\mathbf{g}}$$
+
+其中 Reynolds数 $Re = \frac{UL}{\nu}$ 表征惯性力与粘性力之比，Froude数 $Fr = \frac{U}{\sqrt{gL}}$ 表征惯性力与重力之比。
+
+**压力的作用**：在不可压缩流中，压力不是状态变量，而是一个拉格朗日乘子，用于强制满足不可压缩约束。压力瞬时调整以维持 $\nabla \cdot \mathbf{u} = 0$。
+
+**涡量形式**：取动量方程的旋度，可得涡量输送方程：
+$$\frac{D\boldsymbol{\omega}}{Dt} = (\boldsymbol{\omega} \cdot \nabla)\mathbf{u} + \nu \nabla^2 \boldsymbol{\omega}$$
+
+在2D情况下，涡量拉伸项 $(\boldsymbol{\omega} \cdot \nabla)\mathbf{u}$ 消失，涡量仅通过对流和扩散演化。
 
 ### 4.1.3 算子分裂方法
 
@@ -43,6 +68,23 @@ $$\rho \left(\frac{\partial \mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\
 1. **对流步**：求解 $\frac{\partial \mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\mathbf{u} = 0$
 2. **外力步**：添加重力和粘性力 $\frac{\partial \mathbf{u}}{\partial t} = \nu \nabla^2 \mathbf{u} + \mathbf{g}$
 3. **投影步**：通过压力投影使速度场满足不可压缩条件
+
+**数学基础**：算子分裂基于Trotter-Lie公式。对于方程 $\frac{\partial u}{\partial t} = (A + B)u$，其解可以近似为：
+$$u(t + \Delta t) \approx e^{\Delta t B} e^{\Delta t A} u(t) + O(\Delta t^2)$$
+
+这是一阶分裂。二阶Strang分裂为：
+$$u(t + \Delta t) \approx e^{\Delta t B/2} e^{\Delta t A} e^{\Delta t B/2} u(t) + O(\Delta t^3)$$
+
+**具体算法步骤**：
+
+1. **预测步**（忽略压力）：
+   $$\mathbf{u}^* = \mathbf{u}^n + \Delta t \left[ -(\mathbf{u}^n \cdot \nabla)\mathbf{u}^n + \nu \nabla^2 \mathbf{u}^n + \mathbf{g} \right]$$
+
+2. **压力求解**：
+   $$\nabla^2 p^{n+1} = \frac{\rho}{\Delta t} \nabla \cdot \mathbf{u}^*$$
+
+3. **速度修正**：
+   $$\mathbf{u}^{n+1} = \mathbf{u}^* - \frac{\Delta t}{\rho} \nabla p^{n+1}$$
 
 这种分裂使得每个子问题都可以高效求解。在Taichi中，典型的实现框架如下：
 
@@ -55,6 +97,8 @@ def step():
     advect_other_quantities() # 输送其他物理量
 ```
 
+**分裂误差分析**：算子分裂引入的误差主要来自于忽略了各项之间的耦合。例如，压力梯度实际上会影响对流，但在分裂方法中这种影响被延迟到投影步。这种误差通常是 $O(\Delta t)$，但可以通过高阶分裂方案减小。
+
 ### 4.1.4 稳定性与CFL条件
 
 显式时间积分的稳定性受CFL（Courant-Friedrichs-Lewy）条件限制：
@@ -63,10 +107,32 @@ $$\Delta t \leq C \frac{\Delta x}{|\mathbf{u}|_{\max}}$$
 
 其中 $C$ 是CFL数，通常取0.5-1.0。这个条件确保在一个时间步内，流体粒子移动的距离不超过一个网格单元。
 
+**CFL条件的推导**：考虑一维线性对流方程 $\frac{\partial u}{\partial t} + c\frac{\partial u}{\partial x} = 0$，使用前向时间、中心空间差分：
+$$\frac{u_i^{n+1} - u_i^n}{\Delta t} + c\frac{u_{i+1}^n - u_{i-1}^n}{2\Delta x} = 0$$
+
+通过von Neumann稳定性分析，代入 $u_i^n = \hat{u}^n e^{ik_xi\Delta x}$，可得放大因子：
+$$G = 1 - i\nu \sin(k\Delta x)$$
+
+其中 $\nu = c\Delta t/\Delta x$ 是CFL数。稳定性要求 $|G| \leq 1$，但对于中心差分这永远无法满足。使用迎风格式可得稳定条件 $\nu \leq 1$。
+
 对于粘性项，如果使用显式积分，还需要满足扩散稳定性条件：
 $$\Delta t \leq \frac{(\Delta x)^2}{2d\nu}$$
 
-其中 $d$ 是空间维度。由于这个条件对小网格非常严格，粘性项通常使用隐式或半隐式方法处理。
+其中 $d$ 是空间维度。由于这个条件对小网格非常严格（$\Delta t \propto (\Delta x)^2$），粘性项通常使用隐式或半隐式方法处理。
+
+**多物理场的综合稳定性条件**：
+
+1. **对流CFL**：$\Delta t_{adv} = C_{adv} \frac{\Delta x}{|\mathbf{u}|_{\max}}$
+
+2. **粘性稳定性**：$\Delta t_{visc} = C_{visc} \frac{(\Delta x)^2}{\nu}$
+
+3. **表面张力**（如果存在）：$\Delta t_{\sigma} = C_{\sigma} \sqrt{\frac{\rho (\Delta x)^3}{\sigma}}$
+
+4. **重力波**（自由表面）：$\Delta t_{grav} = C_{grav} \sqrt{\frac{\Delta x}{g}}$
+
+最终时间步长：$\Delta t = \min(\Delta t_{adv}, \Delta t_{visc}, \Delta t_{\sigma}, \Delta t_{grav})$
+
+其中 $C_{adv} \approx 0.5$, $C_{visc} \approx 0.25$, $C_{\sigma} \approx 0.5$, $C_{grav} \approx 0.5$ 是安全系数。
 
 ## 4.2 网格类型与离散化
 
@@ -77,6 +143,11 @@ $$\Delta t \leq \frac{(\Delta x)^2}{2d\nu}$$
 - 实现简单，但可能产生棋盘格压力振荡
 - 需要特殊处理来避免数值不稳定
 
+**棋盘格问题的根源**：在同位网格上，压力梯度使用中心差分：
+$$\left(\frac{\partial p}{\partial x}\right)_i = \frac{p_{i+1} - p_{i-1}}{2\Delta x}$$
+
+这个离散算子无法感知棋盘格模式 $p_i = (-1)^i$，因为 $p_{i+1} - p_{i-1} = 0$。这导致压力泊松方程的零空间包含非物理的高频模式。
+
 **交错网格（MAC Grid）**：
 - 压力存储在单元中心
 - 速度分量存储在对应的单元面中心
@@ -85,11 +156,30 @@ $$\Delta t \leq \frac{(\Delta x)^2}{2d\nu}$$
 
 MAC网格的布局：
 ```
-      v(i,j+1)
+      v(i,j+1/2)
          |
-u(i,j)---p(i,j)---u(i+1,j)
+u(i-1/2,j)---p(i,j)---u(i+1/2,j)
          |
-      v(i,j)
+      v(i,j-1/2)
+```
+
+**MAC网格的数学优势**：
+1. **紧凑的梯度-散度对**：散度和梯度算子互为负转置：
+   $$\langle \nabla \cdot \mathbf{u}, p \rangle = -\langle \mathbf{u}, \nabla p \rangle$$
+   这保证了离散系统的能量守恒性。
+
+2. **自然的通量计算**：速度直接定义在单元界面上，便于计算质量通量。
+
+3. **最优的inf-sup条件**：MAC离散满足离散inf-sup（LBB）条件，保证了压力的唯一性。
+
+**实现细节**：在Taichi中，MAC网格的索引约定：
+```python
+# 压力和标量场：单元中心
+pressure = ti.field(float, shape=(nx, ny))
+# u速度：垂直面中心
+u = ti.field(float, shape=(nx+1, ny))
+# v速度：水平面中心  
+v = ti.field(float, shape=(nx, ny+1))
 ```
 
 ### 4.2.2 MAC网格的优势
