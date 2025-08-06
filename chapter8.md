@@ -8,9 +8,38 @@
 
 物质点法最初由Sulsky和Schreyer在1996年提出，作为有限元方法(FEM)的扩展来处理大变形问题。传统FEM在处理极大变形时会遇到网格扭曲问题，而MPM通过使用拉格朗日粒子（物质点）携带材料信息，欧拉背景网格进行动量方程求解，巧妙地避免了这个问题。
 
-2013年，Stomakhin等人将MPM引入计算机图形学领域，首次实现了雪的真实感模拟。这项工作展示了MPM在处理相变、断裂等复杂物理现象上的独特优势。随后，MPM在图形学领域得到快速发展，被广泛应用于各种材料的模拟，包括沙子、泥土、泡沫、布料等。
+MPM的发展历程可以分为几个重要阶段：
+
+**早期发展（1994-2000）**：
+- 1994年：Sulsky, Chen和Schreyer提出MPM的原始形式，用于固体力学中的冲击和穿透问题
+- 1995年：引入GIMP（Generalized Interpolation Material Point）方法，改善了数值稳定性
+- 1999年：Bardenhagen等人改进了MPM的动量守恒性质
+
+**理论完善（2000-2010）**：
+- 2004年：Steffen等人提出了CPDI（Convected Particle Domain Interpolation），减少了格子噪声
+- 2008年：Sadeghirad等人发展了CPDI2，进一步提高了大变形下的精度
+- 2010年：引入了双网格MPM，分离了动量和应力的计算
+
+**图形学应用（2013至今）**：
+2013年，Stomakhin等人将MPM引入计算机图形学领域，首次实现了雪的真实感模拟，在迪士尼动画《冰雪奇缘》中得到应用。这项工作展示了MPM在处理相变、断裂等复杂物理现象上的独特优势。
+
+关键突破包括：
+- 2014年：Jiang等人提出了APIC方法，实现了角动量守恒
+- 2016年：Klár等人用MPM模拟沙子，引入了Drucker-Prager塑性模型
+- 2016年：Daviet和Bertails-Descoubes提出了implicit MPM
+- 2017年：Gao等人发展了adaptive MPM，支持自适应网格细化
+- 2018年：Hu等人提出MLS-MPM，将实现简化到88行代码
+- 2019年：引入了基于神经网络的本构模型
+- 2020年：发展了GPU优化的MPM，实现了实时模拟
 
 MPM的核心思想是将连续介质离散为一系列携带质量、动量、应力等物理量的粒子，而背景网格仅用于计算内力和更新动量。这种双重表示方式使得MPM既保留了拉格朗日方法追踪材料历史的能力，又具备了欧拉方法处理碰撞和自碰撞的便利性。
+
+**应用领域扩展**：
+- 地质工程：滑坡、土壤液化、基础沉降
+- 生物力学：软组织变形、手术模拟
+- 制造业：3D打印、粉末冶金、增材制造
+- 影视特效：雪崩、沙尘暴、泥石流、爆炸效果
+- 游戏引擎：可破坏环境、流体-固体交互
 
 ### 8.1.2 与FEM的关系
 
@@ -20,12 +49,61 @@ $$\int_\Omega \rho \mathbf{a} \cdot \mathbf{w} \, dV = -\int_\Omega \boldsymbol{
 
 其中$\mathbf{w}$是测试函数，$\mathbf{a}$是加速度，$\boldsymbol{\sigma}$是柯西应力张量，$\mathbf{b}$是体力，$\mathbf{t}$是表面力。
 
-MPM与FEM的主要区别在于积分方式：
-- FEM使用高斯积分点，这些点的位置在单元内固定
-- MPM使用物质点作为积分点，这些点可以自由移动
-- MPM中每个粒子可以视为一个积分点，其积分权重对应于粒子的体积
+**积分方式的本质区别**：
 
-这种关系意味着MPM继承了FEM的许多理论基础，包括收敛性分析、误差估计等，同时又具有处理大变形的灵活性。
+MPM与FEM的主要区别在于积分方式和材料点的处理：
+
+| 特性 | FEM | MPM |
+|------|-----|-----|
+| 积分点 | 高斯点，位置固定在单元内 | 物质点，可自由移动 |
+| 网格作用 | 承载所有信息 | 仅用于动量更新 |
+| 拓扑变化 | 需要重新网格化 | 自然处理 |
+| 历史变量 | 存储在高斯点 | 存储在粒子上 |
+| 大变形 | 网格扭曲问题 | 无网格扭曲 |
+| 接触处理 | 需要显式接触算法 | 自动处理 |
+
+**数学等价性**：
+
+在小变形情况下，MPM可以完全等价于FEM。考虑一个单元内有$n_g$个高斯点的FEM和有$n_p$个粒子的MPM：
+
+FEM的积分：
+$$\int_{\Omega_e} f(\mathbf{x}) \, dV \approx \sum_{g=1}^{n_g} w_g J_g f(\mathbf{x}_g)$$
+
+MPM的积分：
+$$\int_{\Omega_e} f(\mathbf{x}) \, dV \approx \sum_{p=1}^{n_p} V_p f(\mathbf{x}_p)$$
+
+当粒子初始位置与高斯点重合，且$V_p = w_g J_g$时，两者完全等价。
+
+**MPM作为FEM的推广**：
+
+MPM可以理解为使用特殊积分规则的FEM：
+1. **动态积分点**：积分点（粒子）随材料移动，自动追踪材料历史
+2. **单点积分**：每个粒子使用单点积分，$V_p$是积分权重
+3. **无单元结构**：不需要维护单元连接关系，粒子通过背景网格交互
+
+**理论基础的继承**：
+
+MPM继承了FEM的许多理论结果：
+- **收敛性**：在网格加密和粒子加密时，MPM收敛到连续解
+- **误差估计**：$||u - u_h|| \leq Ch^k$，其中$k$取决于形函数阶数
+- **稳定性条件**：CFL条件类似，$\Delta t \leq C\frac{h}{c}$，$c = \sqrt{E/\rho}$
+- **守恒性质**：质量、动量自动守恒，APIC/MLS-MPM还保证角动量守恒
+
+**优势与局限**：
+
+MPM相对于FEM的优势：
+- 处理超大变形无需重网格化
+- 自动处理拓扑变化（断裂、合并）
+- 材料界面追踪精确
+- 历史相关本构模型实现简单
+
+MPM的局限性：
+- 计算成本通常高于FEM（需要更多粒子）
+- 边界条件施加不如FEM精确
+- 对于小变形问题，FEM更高效
+- 可能出现粒子聚集或空洞
+
+这种关系意味着MPM继承了FEM的坚实理论基础，同时又具有处理大变形的灵活性，使其成为极端变形问题的理想选择。
 
 ### 8.1.3 弱形式推导
 
@@ -49,28 +127,111 @@ $$\int_\Omega f(\mathbf{x}) \, dV \approx \sum_p V_p f(\mathbf{x}_p)$$
 
 ### 8.1.4 空间离散化
 
-MPM的空间离散化采用混合方法：
+MPM的空间离散化采用混合方法，结合了拉格朗日粒子和欧拉网格的优势：
 
-1. **粒子表示**：材料被离散为$N_p$个粒子，每个粒子携带：
-   - 位置 $\mathbf{x}_p$
-   - 速度 $\mathbf{v}_p$
-   - 质量 $m_p$
-   - 体积 $V_p$
-   - 变形梯度 $\mathbf{F}_p$
-   - 应力 $\boldsymbol{\sigma}_p$
+**1. 粒子表示（拉格朗日部分）**
 
-2. **背景网格**：使用规则的背景网格（通常是笛卡尔网格），网格节点$i$具有：
-   - 位置 $\mathbf{x}_i$
-   - 速度 $\mathbf{v}_i$
-   - 质量 $m_i$
-   - 动量 $\mathbf{p}_i = m_i \mathbf{v}_i$
+材料被离散为$N_p$个粒子，每个粒子$p$携带完整的材料状态：
 
-3. **形函数**：使用形函数$N_i(\mathbf{x})$在粒子和网格之间插值，常用的是B样条基函数：
-   - 线性（1次）：$N(x) = 1 - |x|$, $|x| \leq 1$
-   - 二次：$N(x) = \begin{cases} \frac{3}{4} - x^2 & |x| \leq \frac{1}{2} \\ \frac{1}{2}(|x| - \frac{3}{2})^2 & \frac{1}{2} < |x| \leq \frac{3}{2} \end{cases}$
-   - 三次：使用三次B样条，支持域更大但更光滑
+| 变量 | 符号 | 物理意义 | 维度 |
+|------|------|----------|------|
+| 位置 | $\mathbf{x}_p$ | 当前构型中的位置 | $\mathbb{R}^d$ |
+| 速度 | $\mathbf{v}_p$ | 材料点速度 | $\mathbb{R}^d$ |
+| 质量 | $m_p$ | 粒子质量（守恒） | $\mathbb{R}$ |
+| 体积 | $V_p$ | 当前体积 | $\mathbb{R}$ |
+| 初始体积 | $V_p^0$ | 参考构型体积 | $\mathbb{R}$ |
+| 变形梯度 | $\mathbf{F}_p$ | 变形梯度张量 | $\mathbb{R}^{d\times d}$ |
+| 应力 | $\boldsymbol{\sigma}_p$ | 柯西应力张量 | $\mathbb{R}^{d\times d}$ |
+| 仿射速度 | $\mathbf{C}_p$ | APIC/MLS-MPM速度梯度 | $\mathbb{R}^{d\times d}$ |
+| 塑性变形 | $\mathbf{F}_p^p$ | 塑性变形部分 | $\mathbb{R}^{d\times d}$ |
+| 内部变量 | $\boldsymbol{\alpha}_p$ | 硬化参数等 | 问题相关 |
 
-空间离散化的关键是粒子-网格传输（P2G）和网格-粒子传输（G2P）操作，这些将在后续章节详细讨论。
+粒子密度的选择原则：
+- 2D：每个网格单元4-9个粒子
+- 3D：每个网格单元8-27个粒子
+- 自适应：基于变形程度动态调整
+
+**2. 背景网格（欧拉部分）**
+
+使用规则的背景网格进行动量更新，网格节点$i$存储：
+
+| 变量 | 符号 | 作用 | 生命周期 |
+|------|------|------|----------|
+| 位置 | $\mathbf{x}_i$ | 节点坐标（固定） | 永久 |
+| 速度 | $\mathbf{v}_i$ | 节点速度 | 单个时间步 |
+| 质量 | $m_i$ | 节点质量 | 单个时间步 |
+| 动量 | $\mathbf{p}_i$ | $= m_i \mathbf{v}_i$ | 单个时间步 |
+| 力 | $\mathbf{f}_i$ | 节点受力 | 单个时间步 |
+
+网格类型选择：
+- **均匀笛卡尔网格**：实现简单，GPU友好
+- **MAC网格**：交错网格，用于流体
+- **自适应网格**：AMR或八叉树结构
+
+**3. 形函数（插值核）**
+
+形函数$N_i(\mathbf{x})$定义了粒子和网格之间的映射关系。常用B样条基函数：
+
+**线性B样条（tent函数）**：
+$$N^1(x) = \begin{cases}
+1 - |x| & |x| \leq 1 \\
+0 & |x| > 1
+\end{cases}$$
+
+导数：
+$$\frac{dN^1}{dx} = \begin{cases}
+-\text{sign}(x) & |x| < 1 \\
+0 & |x| \geq 1
+\end{cases}$$
+
+**二次B样条**：
+$$N^2(x) = \begin{cases}
+\frac{3}{4} - x^2 & |x| \leq \frac{1}{2} \\
+\frac{1}{2}(\frac{3}{2} - |x|)^2 & \frac{1}{2} < |x| \leq \frac{3}{2} \\
+0 & |x| > \frac{3}{2}
+\end{cases}$$
+
+导数：
+$$\frac{dN^2}{dx} = \begin{cases}
+-2x & |x| \leq \frac{1}{2} \\
+-(\frac{3}{2} - |x|)\text{sign}(x) & \frac{1}{2} < |x| \leq \frac{3}{2} \\
+0 & |x| > \frac{3}{2}
+\end{cases}$$
+
+**三次B样条**：
+$$N^3(x) = \begin{cases}
+\frac{1}{2}|x|^3 - x^2 + \frac{2}{3} & |x| \leq 1 \\
+-\frac{1}{6}|x|^3 + x^2 - 2|x| + \frac{4}{3} & 1 < |x| \leq 2 \\
+0 & |x| > 2
+\end{cases}$$
+
+**多维形函数**：
+
+使用张量积构造：
+$$N_i(\mathbf{x}_p) = \prod_{d=1}^{\text{dim}} N^{1D}\left(\frac{x_p^d - x_i^d}{\Delta x}\right)$$
+
+**4. 离散化误差分析**
+
+空间离散化引入的误差主要来源于：
+
+1. **积分误差**：$O(h^{k+1})$，其中$k$是形函数阶数
+2. **插值误差**：$O(h^{k})$，影响P2G/G2P传输
+3. **格子噪声**：粒子穿越网格单元边界时的误差
+
+**5. 粒子-网格映射关系**
+
+定义权重函数：
+$$w_{ip} = N_i(\mathbf{x}_p)$$
+
+梯度权重：
+$$\nabla w_{ip} = \nabla N_i(\mathbf{x}_p)$$
+
+这些权重满足：
+- 分割统一性：$\sum_i w_{ip} = 1$
+- 紧支性：只有有限个$w_{ip} \neq 0$
+- 光滑性：$C^{k-1}$连续，其中$k$是B样条阶数
+
+空间离散化的关键是粒子-网格传输（P2G）和网格-粒子传输（G2P）操作，这些传输保证了动量守恒和数值稳定性。
 
 ## 8.2 经典MPM算法
 
@@ -108,72 +269,274 @@ USF通常具有更好的能量守恒性质，但USL在某些情况下数值稳�
 
 ### 8.2.2 形函数选择
 
-形函数的选择对MPM的精度和稳定性有重要影响：
+形函数的选择对MPM的精度和稳定性有重要影响，需要在计算效率、数值精度和稳定性之间权衡：
 
-**线性B样条**：
-- 计算效率高，每个粒子影响$2^d$个节点（$d$是维度）
-- 可能产生"格子噪声"（grid crossing error）
-- 适合快速原型开发
+**形函数对比**：
+
+| 特性 | 线性B样条 | 二次B样条 | 三次B样条 |
+|------|-----------|-----------|------------|
+| 支持域 | $[-1, 1]$ | $[-1.5, 1.5]$ | $[-2, 2]$ |
+| 影响节点(2D) | 4 | 9 | 16 |
+| 影响节点(3D) | 8 | 27 | 64 |
+| 连续性 | $C^0$ | $C^1$ | $C^2$ |
+| 计算复杂度 | 低 | 中 | 高 |
+| 格子噪声 | 严重 | 轻微 | 几乎无 |
+| 内存占用 | 小 | 中 | 大 |
+
+**线性B样条（tent函数）**：
+- 优点：计算效率高，实现简单，内存占用小
+- 缺点：严重的格子噪声（grid crossing error），梯度不连续
+- 应用：快速原型开发，实时应用，GPU实现
+- 数学表达：$N^1(x) = \max(0, 1 - |x|)$
 
 **二次B样条**：
-- 更光滑，减少格子噪声
-- 每个粒子影响$3^d$个节点
-- 计算成本适中，是常用选择
+- 优点：$C^1$连续，格子噪声较小，精度-效率平衡好
+- 缺点：计算量是线性的3倍左右
+- 应用：大多数生产级MPM实现的默认选择
+- 特殊性质：满足再生条件，可精确再生线性场
 
 **三次B样条**：
-- 最光滑，几乎消除格子噪声
-- 每个粒子影响$4^d$个节点
-- 计算成本较高，用于高精度要求场景
+- 优点：$C^2$连续，几乎无格子噪声，高精度
+- 缺点：计算成本高，内存占用大，实现复杂
+- 应用：高精度科学计算，小规模精确模拟
+- 特殊性质：可精确再生二次多项式场
 
-形函数及其梯度的计算：
-$$N_i(\mathbf{x}_p) = \prod_{d=1}^{dim} N^{1D}\left(\frac{x_p^d - x_i^d}{\Delta x}\right)$$
+**格子噪声（Grid Crossing Error）分析**：
 
-$$\nabla N_i(\mathbf{x}_p) = \nabla \left[ \prod_{d} N^{1D}_d \right] = \sum_{d} \frac{\partial N^{1D}_d}{\partial x^d} \prod_{k \neq d} N^{1D}_k$$
+当粒子穿越网格单元边界时，权重函数的不连续变化导致的数值噪声：
+$$\text{Error} \propto \frac{\partial^{k+1} N}{\partial x^{k+1}}$$
+
+其中$k$是B样条的阶数。高阶B样条具有更高阶的连续性，因此格子噪声更小。
+
+**形函数计算优化**：
+
+多维形函数使用张量积：
+$$N_i(\mathbf{x}_p) = \prod_{d=1}^{\text{dim}} N^{1D}\left(\frac{x_p^d - x_i^d}{\Delta x}\right)$$
+
+梯度计算（利用链式法则）：
+$$\nabla N_i(\mathbf{x}_p) = \begin{bmatrix}
+\frac{\partial N^{1D}_x}{\partial x} N^{1D}_y N^{1D}_z \\
+N^{1D}_x \frac{\partial N^{1D}_y}{\partial y} N^{1D}_z \\
+N^{1D}_x N^{1D}_y \frac{\partial N^{1D}_z}{\partial z}
+\end{bmatrix}$$
+
+**实现技巧**：
+1. 预计算权重表：对于固定网格，预计算并存储权重
+2. SIMD优化：利用向量指令并行计算多个权重
+3. 稀疏性利用：只计算非零权重（利用紧支性）
+4. 缓存优化：按粒子空间位置排序，提高缓存命中率
 
 ### 8.2.3 积分点与背景网格
 
-MPM中的数值积分使用单点积分规则，每个粒子作为一个积分点：
+MPM中的数值积分使用单点积分规则，每个粒子作为一个积分点，这是MPM区别于传统FEM的关键特征：
 
+**积分近似**：
 $$\int_\Omega f(\mathbf{x}) \, dV \approx \sum_p V_p^0 f(\mathbf{x}_p)$$
 
-其中$V_p^0$是粒子的初始体积。
+其中$V_p^0$是粒子的初始（参考）体积，满足：
+$$\sum_p V_p^0 = V_{\text{total}}$$
 
-**背景网格类型**：
-1. **均匀笛卡尔网格**：最常用，实现简单，适合GPU并行
-2. **SPGrid**：稀疏分页网格，利用虚拟内存管理稀疏数据
-3. **OpenVDB**：层次化B+树结构，适合极度稀疏的大规模模拟
+**粒子作为积分点的特性**：
+1. **单点积分**：每个粒子使用单点求积规则，可能引入零能模式
+2. **权重更新**：$V_p = J_p V_p^0$，其中$J_p = \det(\mathbf{F}_p)$
+3. **守恒性**：质量守恒自动满足，$m_p = \rho_0 V_p^0$保持不变
+4. **精度分析**：积分精度取决于粒子密度和分布均匀性
+
+**背景网格类型详解**：
+
+**1. 均匀笛卡尔网格**：
+- 结构：规则的立方体单元，间距$\Delta x$
+- 索引：直接映射$(i,j,k) \rightarrow i + j \cdot N_x + k \cdot N_x \cdot N_y$
+- 优点：实现简单，缓存友好，GPU高效
+- 缺点：内存浪费（空区域也分配）
+- 适用：中小规模、密集型模拟
+
+**2. SPGrid（Sparse Paged Grid）**：
+- 结构：虚拟内存页（通常512³或1024³）
+- 原理：利用OS的虚拟内存管理，未使用页不占物理内存
+- 优点：自动内存管理，支持超大域
+- 实现：
+```python
+# 概念性实现
+page_mask = 0xFFFFF000  # 4KB页
+offset_mask = 0x00000FFF
+page_table = {}  # 稀疏页表
+```
+- 适用：大规模稀疏模拟（如烟雾）
+
+**3. OpenVDB风格层次网格**：
+- 结构：B+树，典型配置5-4-3（根-内部-叶子）
+- 分辨率：支持$2^{30}$级别的虚拟分辨率
+- 优点：极度稀疏时内存效率最高，支持自适应
+- 缺点：随机访问开销大，实现复杂
+- 适用：电影级特效，极大规模模拟
+
+**4. 自适应网格（AMR）**：
+- 结构：八叉树（3D）或四叉树（2D）
+- 细化准则：基于粒子密度、变形梯度或误差估计
+- 优点：计算资源集中在关键区域
+- 挑战：P2G/G2P跨级别传输复杂
 
 **粒子分布策略**：
-- 每个网格单元通常放置$2^d$到$4^d$个粒子
-- 粒子初始位置可以是规则分布或随机扰动
-- 粒子密度影响数值精度和计算成本
+
+**初始分布模式**：
+1. **规则分布**：
+   - 2D：$2\times2$或$3\times3$每单元
+   - 3D：$2\times2\times2$或$3\times3\times3$每单元
+   - 优点：均匀，易实现
+   - 缺点：可能产生各向异性
+
+2. **随机扰动**：
+   ```python
+   # Jittered sampling
+   x_p = x_regular + random.uniform(-0.5, 0.5) * dx * jitter_factor
+   ```
+   - jitter_factor通常取0.1-0.3
+   - 减少规则分布的伪影
+
+3. **Poisson盘采样**：
+   - 保证最小间距$r_{\min}$
+   - 蓝噪声特性，更均匀
+   - 实现复杂但质量最高
+
+**粒子密度准则**：
+
+| 维度 | 最小密度 | 推荐密度 | 高质量密度 |
+|------|----------|----------|------------|
+| 1D | 2 ppc | 3 ppc | 4 ppc |
+| 2D | 4 ppc | 9 ppc | 16 ppc |
+| 3D | 8 ppc | 27 ppc | 64 ppc |
+
+（ppc = particles per cell）
+
+**积分精度与粒子数关系**：
+$$\text{Error} = O\left(\frac{1}{\sqrt{N_p}}\right) + O(h^k)$$
+
+第一项是统计误差，第二项是离散化误差。
 
 ### 8.2.4 边界条件处理
 
-MPM中的边界条件在网格级别施加，主要有三种类型：
+MPM中的边界条件在网格级别施加，这是欧拉部分处理的优势。边界条件的正确施加对模拟的物理真实性至关重要：
 
-**粘性边界（Sticky）**：
-粒子在边界上速度完全为零
-$$\mathbf{v}_i = 0 \quad \text{if } \mathbf{x}_i \in \partial\Omega_{sticky}$$
+**边界条件类型**：
 
-**滑动边界（Slip）**：
-只约束法向速度，允许切向滑动
-$$\mathbf{v}_i \cdot \mathbf{n} = 0, \quad \mathbf{v}_i = \mathbf{v}_i - (\mathbf{v}_i \cdot \mathbf{n})\mathbf{n}$$
+**1. 粘性边界（Sticky/No-slip）**：
+物理意义：完全粘附，模拟粗糙表面或胶合界面
+$$\mathbf{v}_i = \mathbf{v}_{\text{wall}} \quad \text{if } \mathbf{x}_i \in \partial\Omega_{\text{sticky}}$$
 
-**分离边界（Separate）**：
-单向约束，只在穿透时起作用
-$$\text{if } \mathbf{v}_i \cdot \mathbf{n} < 0: \quad \mathbf{v}_i = \mathbf{v}_i - (\mathbf{v}_i \cdot \mathbf{n})\mathbf{n}$$
+通常$\mathbf{v}_{\text{wall}} = 0$（静止壁面），但也可以是运动边界。
 
-实现时，通常在网格动量更新后立即施加边界条件：
+**2. 滑动边界（Slip/Free-slip）**：
+物理意义：无摩擦滑动，只约束法向分量
+$$\begin{cases}
+\mathbf{v}_i \cdot \mathbf{n} = \mathbf{v}_{\text{wall}} \cdot \mathbf{n} \\
+\mathbf{v}_i^{\text{new}} = \mathbf{v}_i - (\mathbf{v}_i \cdot \mathbf{n} - \mathbf{v}_{\text{wall}} \cdot \mathbf{n})\mathbf{n}
+\end{cases}$$
+
+**3. 分离边界（Separable/One-way）**：
+物理意义：单向约束，允许分离但阻止穿透
+$$\mathbf{v}_i^{\text{new}} = \begin{cases}
+\mathbf{v}_i - \min(0, \mathbf{v}_i \cdot \mathbf{n})\mathbf{n} & \text{if approaching} \\
+\mathbf{v}_i & \text{if separating}
+\end{cases}$$
+
+**4. 摩擦边界（Frictional）**：
+结合库仑摩擦模型：
+$$\begin{cases}
+\mathbf{v}_n = -e \cdot \mathbf{v}_i \cdot \mathbf{n} \cdot \mathbf{n} & \text{(法向，e是恢复系数)} \\
+\mathbf{v}_t = \max(0, 1 - \mu \frac{|\mathbf{v}_n|}{|\mathbf{v}_t|}) \mathbf{v}_t & \text{(切向，μ是摩擦系数)}
+\end{cases}$$
+
+**实现策略**：
+
 ```python
-# 网格动量更新后
-if is_boundary(i, j):
+@ti.kernel
+def apply_boundary_conditions():
+    for i, j, k in grid_v:
+        # 检查边界
+        if i < boundary_width or i >= res_x - boundary_width:
+            apply_bc_x(i, j, k)
+        if j < boundary_width or j >= res_y - boundary_width:
+            apply_bc_y(i, j, k)
+        if k < boundary_width or k >= res_z - boundary_width:
+            apply_bc_z(i, j, k)
+
+@ti.func
+def apply_bc_x(i, j, k):
     if boundary_type == STICKY:
-        v[i, j] = 0
+        grid_v[i, j, k] = vec3(0)
     elif boundary_type == SLIP:
-        normal = get_boundary_normal(i, j)
-        v[i, j] -= dot(v[i, j], normal) * normal
+        normal = vec3(1, 0, 0) if i < boundary_width else vec3(-1, 0, 0)
+        vn = grid_v[i, j, k].dot(normal)
+        grid_v[i, j, k] -= vn * normal
+    elif boundary_type == SEPARATE:
+        normal = vec3(1, 0, 0) if i < boundary_width else vec3(-1, 0, 0)
+        vn = grid_v[i, j, k].dot(normal)
+        if vn * normal.x < 0:  # 朝向边界
+            grid_v[i, j, k] -= vn * normal
+    elif boundary_type == FRICTION:
+        apply_friction_bc(i, j, k)
 ```
+
+**复杂边界几何**：
+
+**1. 隐式表面（Level Set）**：
+使用有符号距离场$\phi(\mathbf{x})$表示边界：
+```python
+@ti.func
+def apply_sdf_boundary(x, v):
+    phi = sample_sdf(x)
+    if phi < 0:  # 在物体内部
+        normal = compute_sdf_gradient(x).normalized()
+        vn = v.dot(normal)
+        if boundary_type == STICKY:
+            v = vec3(0)
+        elif boundary_type == SLIP:
+            v -= vn * normal
+    return v
+```
+
+**2. 解析边界**：
+球体、平面、盒子等简单几何：
+```python
+@ti.func
+def sphere_boundary(x, v, center, radius):
+    dist = (x - center).norm()
+    if dist < radius:
+        normal = (x - center).normalized()
+        # 应用边界条件
+        v = apply_bc(v, normal)
+    return v
+```
+
+**3. 三角网格边界**：
+复杂几何使用三角网格表示，需要加速结构（BVH、空间哈希）。
+
+**边界条件的时机**：
+
+正确的施加顺序：
+1. P2G传输
+2. 网格动量更新（重力、内力）
+3. **施加边界条件** ← 关键时机
+4. G2P传输
+
+**常见问题与解决**：
+
+1. **粒子穿透**：
+   - 原因：时间步过大或边界太薄
+   - 解决：CFL条件、多层边界、连续碰撞检测
+
+2. **粘附伪影**：
+   - 原因：数值粘性
+   - 解决：高阶形函数、FLIP混合
+
+3. **边界层分离**：
+   - 原因：边界处粒子稀疏
+   - 解决：边界附近增加粒子密度
+
+4. **动量不守恒**：
+   - 原因：边界力未正确计算
+   - 解决：记录边界冲量，用于后处理分析
 
 ## 8.3 移动最小二乘MPM(MLS-MPM)
 
