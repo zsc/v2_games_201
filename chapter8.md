@@ -662,3 +662,602 @@ for p in particles:
         if generate_crack_particles:
             create_crack_particles(x[p], U[:, 0])  # 沿主应力方向
 ```
+
+## 8.7 隐式MPM
+
+### 8.7.1 隐式时间积分
+
+当模拟刚性材料（高杨氏模量）或需要大时间步长时，显式MPM会遇到稳定性问题。隐式MPM通过求解非线性系统来保证无条件稳定性。
+
+**隐式欧拉格式**：
+$$\mathbf{v}^{n+1} = \mathbf{v}^n + \Delta t \mathbf{M}^{-1}[\mathbf{f}_{ext} - \mathbf{f}_{int}(\mathbf{x}^{n+1})]$$
+$$\mathbf{x}^{n+1} = \mathbf{x}^n + \Delta t \mathbf{v}^{n+1}$$
+
+这导致非线性系统：
+$$\mathbf{g}(\mathbf{v}^{n+1}) = \mathbf{M}\mathbf{v}^{n+1} - \mathbf{M}\mathbf{v}^n - \Delta t[\mathbf{f}_{ext} - \mathbf{f}_{int}(\mathbf{x}^n + \Delta t \mathbf{v}^{n+1})] = 0$$
+
+**Newton-Raphson求解**：
+线性化系统：
+$$\mathbf{J}\Delta\mathbf{v} = -\mathbf{g}(\mathbf{v}^k)$$
+
+其中雅可比矩阵：
+$$\mathbf{J} = \frac{\partial \mathbf{g}}{\partial \mathbf{v}} = \mathbf{M} + \Delta t^2 \frac{\partial \mathbf{f}_{int}}{\partial \mathbf{x}}$$
+
+### 8.7.2 切线刚度矩阵
+
+计算切线刚度矩阵是隐式MPM的关键。对于超弹性材料：
+
+**应力导数**：
+$$\frac{\partial \mathbf{P}}{\partial \mathbf{F}} = \frac{\partial^2 \psi}{\partial \mathbf{F} \partial \mathbf{F}} = \mathbb{C}$$
+
+这是四阶张量，称为切线模量。
+
+**Neo-Hookean的切线模量**：
+$$\mathbb{C}_{ijkl} = \mu\delta_{ik}\delta_{jl} + (\mu - \lambda\ln J)F^{-1}_{ji}F^{-1}_{lk} + \lambda F^{-1}_{ji}F^{-1}_{lk}$$
+
+**网格级别的刚度矩阵**：
+$$\mathbf{K}_{IJ} = \sum_p V_p \nabla N_I(\mathbf{x}_p) : \mathbb{C}_p : \nabla N_J(\mathbf{x}_p)$$
+
+### 8.7.3 Newton-Raphson迭代
+
+隐式MPM的Newton迭代过程：
+
+```python
+def implicit_mpm_step():
+    # 初始猜测
+    v_new = v_old + dt * f_ext / mass
+    
+    for newton_iter in range(max_iterations):
+        # 计算残差
+        x_trial = x_old + dt * v_new
+        f_int = compute_internal_forces(x_trial)
+        residual = mass * (v_new - v_old) - dt * (f_ext - f_int)
+        
+        # 检查收敛
+        if norm(residual) < tolerance:
+            break
+        
+        # 计算切线刚度矩阵
+        K = compute_tangent_stiffness(x_trial)
+        J = mass + dt^2 * K
+        
+        # 求解线性系统
+        delta_v = solve(J, -residual)
+        
+        # 线搜索（可选）
+        alpha = line_search(v_new, delta_v)
+        v_new += alpha * delta_v
+    
+    return v_new
+```
+
+**线搜索策略**：
+为确保收敛，使用Armijo线搜索：
+$$||\mathbf{g}(\mathbf{v} + \alpha\Delta\mathbf{v})|| < (1 - c\alpha)||\mathbf{g}(\mathbf{v})||$$
+
+其中$c \in (0, 0.5)$是常数。
+
+### 8.7.4 大变形处理
+
+大变形下的隐式MPM需要特殊处理：
+
+**几何非线性**：
+变形梯度的增量更新：
+$$\mathbf{F}^{n+1} = (\mathbf{I} + \Delta t \nabla \mathbf{v}^{n+1})\mathbf{F}^n$$
+
+这是关于$\mathbf{v}^{n+1}$的非线性函数。
+
+**共旋框架**：
+使用共旋坐标系减少非线性：
+1. 提取旋转：$\mathbf{F} = \mathbf{R}\mathbf{S}$
+2. 在局部坐标系求解
+3. 转换回全局坐标系
+
+**增量形式**：
+使用增量变形梯度：
+$$\delta\mathbf{F} = \Delta t \nabla\delta\mathbf{v} \cdot \mathbf{F}^n$$
+
+**自适应时间步长**：
+根据Newton迭代的收敛性调整时间步长：
+```python
+if newton_iterations > max_iter * 0.8:
+    dt *= 0.5  # 减小时间步长
+elif newton_iterations < max_iter * 0.2:
+    dt *= 1.2  # 增大时间步长
+```
+
+## 8.8 高级Taichi特性（2）
+
+### 8.8.1 稀疏数据结构设计
+
+MPM的计算域通常是稀疏的，使用稀疏数据结构可以大幅提升性能。
+
+**SPGrid (Setaluri et al. 2014)**：
+利用虚拟内存的分页机制：
+```python
+@ti.data_oriented
+class SPGrid:
+    def __init__(self, resolution):
+        self.resolution = resolution
+        # 使用位掩码管理稀疏块
+        self.mask = ti.field(dtype=ti.i32, shape=resolution//block_size)
+        self.data = ti.field(dtype=ti.f32)
+        
+        # 动态分配
+        ti.root.pointer(ti.ijk, resolution//block_size).dense(ti.ijk, block_size).place(self.data)
+```
+
+**优势**：
+- 内存自动管理
+- 缓存友好的访问模式
+- 支持动态拓扑变化
+
+**OpenVDB风格的层次结构**：
+```python
+# Taichi中的层次稀疏网格
+grid = ti.field(dtype=ti.f32)
+ti.root.pointer(ti.ijk, 64).pointer(ti.ijk, 8).dense(ti.ijk, 8).place(grid)
+```
+
+三层结构：
+1. 顶层：64³的指针网格
+2. 中层：8³的指针块
+3. 底层：8³的密集数据
+
+### 8.8.2 动态内存分配
+
+Taichi支持动态内存管理，适合粒子数量变化的场景。
+
+**动态粒子数组**：
+```python
+@ti.data_oriented
+class ParticleSystem:
+    def __init__(self, max_particles):
+        self.max_particles = max_particles
+        self.n_particles = ti.field(ti.i32, shape=())
+        
+        # 动态数组
+        self.x = ti.Vector.field(3, dtype=ti.f32)
+        self.v = ti.Vector.field(3, dtype=ti.f32)
+        self.F = ti.Matrix.field(3, 3, dtype=ti.f32)
+        
+        # 使用动态SNode
+        self.particle = ti.root.dynamic(ti.i, self.max_particles)
+        self.particle.place(self.x, self.v, self.F)
+    
+    @ti.kernel
+    def add_particle(self, pos: ti.types.vector(3, ti.f32)):
+        i = ti.atomic_add(self.n_particles[None], 1)
+        self.x[i] = pos
+        self.v[i] = ti.Vector([0.0, 0.0, 0.0])
+        self.F[i] = ti.Matrix.identity(ti.f32, 3)
+```
+
+**内存池管理**：
+```python
+@ti.data_oriented
+class MemoryPool:
+    def __init__(self, chunk_size, max_chunks):
+        self.chunk_size = chunk_size
+        self.free_list = ti.field(ti.i32, shape=max_chunks)
+        self.n_free = ti.field(ti.i32, shape=())
+        
+    @ti.func
+    def allocate(self) -> ti.i32:
+        n = ti.atomic_sub(self.n_free[None], 1)
+        if n > 0:
+            return self.free_list[n-1]
+        return -1  # 分配失败
+    
+    @ti.func
+    def deallocate(self, chunk_id: ti.i32):
+        n = ti.atomic_add(self.n_free[None], 1)
+        self.free_list[n] = chunk_id
+```
+
+### 8.8.3 层次化网格
+
+层次化网格可以在不同尺度上高效处理物理现象。
+
+**自适应网格细化(AMR)**：
+```python
+@ti.data_oriented
+class AdaptiveGrid:
+    def __init__(self):
+        # 多层级网格
+        self.level0 = ti.field(dtype=ti.f32, shape=(64, 64, 64))
+        self.level1 = ti.field(dtype=ti.f32, shape=(128, 128, 128))
+        self.level2 = ti.field(dtype=ti.f32, shape=(256, 256, 256))
+        
+        # 细化标记
+        self.refine_flag = ti.field(dtype=ti.i32, shape=(64, 64, 64))
+    
+    @ti.kernel
+    def adaptive_refine(self):
+        for i, j, k in self.level0:
+            # 检查细化准则（如梯度）
+            if self.needs_refinement(i, j, k):
+                self.refine_flag[i, j, k] = 1
+                # 插值到细网格
+                self.interpolate_to_fine(i, j, k)
+    
+    @ti.func
+    def needs_refinement(self, i, j, k) -> ti.i32:
+        # 基于梯度的细化准则
+        grad = ti.abs(self.level0[i+1,j,k] - self.level0[i-1,j,k])
+        return grad > self.refine_threshold
+```
+
+**多重网格加速**：
+用于隐式求解器：
+```python
+@ti.kernel
+def multigrid_vcycle(level: ti.i32):
+    # 前光滑
+    for _ in range(n_smooth):
+        smooth(level)
+    
+    if level > 0:
+        # 限制到粗网格
+        restrict(level, level-1)
+        
+        # 递归求解
+        multigrid_vcycle(level-1)
+        
+        # 延拓到细网格
+        prolongate(level-1, level)
+    
+    # 后光滑
+    for _ in range(n_smooth):
+        smooth(level)
+```
+
+### 8.8.4 自定义数据布局
+
+优化内存访问模式对性能至关重要。
+
+**AoS vs SoA布局**：
+```python
+# Array of Structures (AoS)
+@ti.dataclass
+class Particle:
+    x: ti.types.vector(3, ti.f32)
+    v: ti.types.vector(3, ti.f32)
+    m: ti.f32
+
+particles_aos = Particle.field(shape=n_particles)
+
+# Structure of Arrays (SoA)
+x_soa = ti.Vector.field(3, dtype=ti.f32, shape=n_particles)
+v_soa = ti.Vector.field(3, dtype=ti.f32, shape=n_particles)
+m_soa = ti.field(dtype=ti.f32, shape=n_particles)
+```
+
+**性能考虑**：
+- AoS：空间局部性好，适合访问单个粒子的所有属性
+- SoA：向量化友好，适合批量处理同一属性
+
+**自定义布局示例**：
+```python
+# 块状布局，结合AoS和SoA的优势
+block_size = 32
+x = ti.Vector.field(3, dtype=ti.f32)
+v = ti.Vector.field(3, dtype=ti.f32)
+
+# 二级结构：块内SoA，块间数组
+ti.root.dense(ti.i, n_particles//block_size).dense(ti.j, block_size).place(x, v)
+```
+
+**内存对齐**：
+```python
+# 确保缓存行对齐
+@ti.kernel
+def aligned_access():
+    # Taichi自动处理对齐
+    for i in range(n_particles):
+        # 连续访问，利用缓存
+        x[i] += v[i] * dt
+```
+
+## 本章小结
+
+物质点法(MPM)作为混合欧拉-拉格朗日方法的代表，成功结合了两种视角的优势。本章深入探讨了MPM的理论基础、算法实现和工程应用：
+
+**核心概念**：
+1. **MPM基础**：粒子携带材料信息，网格用于动量更新，避免网格扭曲和数值耗散
+2. **MLS-MPM**：通过移动最小二乘简化实现，仅需88行代码，性能提升50%
+3. **本构模型**：支持弹性、塑性、流体等多种材料，通过SVD实现屈服准则
+4. **数值断裂**：连续损伤力学、相场方法、CPIC等断裂模拟技术
+5. **隐式积分**：处理刚性材料和大时间步长，Newton-Raphson迭代求解
+
+**关键公式**：
+- 弱形式：$\int_\Omega \rho \mathbf{a} \cdot \mathbf{w} \, dV = -\int_\Omega \boldsymbol{\sigma} : \nabla \mathbf{w} \, dV + \int_\Omega \rho \mathbf{b} \cdot \mathbf{w} \, dV$
+- 变形梯度更新：$\mathbf{F}^{n+1} = (\mathbf{I} + \Delta t \mathbf{C}^n) \mathbf{F}^n$
+- Neo-Hookean应力：$\mathbf{P} = \mu(\mathbf{F} - \mathbf{F}^{-T}) + \lambda\ln(J)\mathbf{F}^{-T}$
+- 塑性返回映射：通过SVD夹持奇异值到屈服面
+
+**实现要点**：
+- 形函数选择：二次B样条提供精度-效率平衡
+- P2G/G2P传输：APIC保证角动量守恒
+- 稀疏数据结构：SPGrid或OpenVDB处理大规模稀疏域
+- 性能优化：SoA布局、向量化、多层级网格
+
+## 练习题
+
+### 基础题
+
+**练习8.1**：推导二维情况下二次B样条基函数的显式表达式，并计算其梯度。
+
+*提示*：从一维B样条$N(x)$出发，使用张量积构造二维基函数。
+
+<details>
+<summary>答案</summary>
+
+一维二次B样条：
+$$N(x) = \begin{cases}
+\frac{3}{4} - x^2 & |x| \leq \frac{1}{2} \\
+\frac{1}{2}(\frac{3}{2} - |x|)^2 & \frac{1}{2} < |x| \leq \frac{3}{2} \\
+0 & |x| > \frac{3}{2}
+\end{cases}$$
+
+二维基函数：
+$$N_{ij}(x, y) = N(x - x_i)N(y - y_j)$$
+
+梯度：
+$$\nabla N_{ij} = \begin{bmatrix}
+N'(x - x_i)N(y - y_j) \\
+N(x - x_i)N'(y - y_j)
+\end{bmatrix}$$
+
+其中$N'(x) = -2x$当$|x| \leq \frac{1}{2}$，$N'(x) = -(\frac{3}{2} - |x|)\text{sign}(x)$当$\frac{1}{2} < |x| \leq \frac{3}{2}$。
+</details>
+
+**练习8.2**：证明MLS-MPM中的$\mathbf{C}_p$矩阵确实近似了速度梯度$\nabla\mathbf{v}$。
+
+*提示*：从APIC的推导出发，考虑仿射速度场$\mathbf{v}(\mathbf{x}) = \mathbf{v}_p + \mathbf{C}_p(\mathbf{x} - \mathbf{x}_p)$。
+
+<details>
+<summary>答案</summary>
+
+仿射速度场的梯度：
+$$\nabla\mathbf{v} = \nabla[\mathbf{v}_p + \mathbf{C}_p(\mathbf{x} - \mathbf{x}_p)] = \mathbf{C}_p$$
+
+在G2P传输中：
+$$\mathbf{C}_p = \sum_i \mathbf{v}_i \otimes \nabla N_i(\mathbf{x}_p)$$
+
+这正是速度场在粒子位置的梯度的加权平均，因此$\mathbf{C}_p \approx \nabla\mathbf{v}|_{\mathbf{x}_p}$。
+</details>
+
+**练习8.3**：计算Neo-Hookean模型在单轴拉伸下的应力-应变关系。设拉伸比为$\lambda$，其他方向自由变形。
+
+*提示*：利用不可压缩条件$\det(\mathbf{F}) = 1$。
+
+<details>
+<summary>答案</summary>
+
+单轴拉伸的变形梯度：
+$$\mathbf{F} = \text{diag}(\lambda, \lambda^{-1/2}, \lambda^{-1/2})$$
+
+保证$\det(\mathbf{F}) = \lambda \cdot \lambda^{-1/2} \cdot \lambda^{-1/2} = 1$。
+
+Neo-Hookean应力：
+$$P_{11} = \mu(\lambda - \lambda^{-1})$$
+
+工程应力：
+$$\sigma = \frac{P_{11}}{\lambda} = \mu(1 - \lambda^{-2})$$
+</details>
+
+### 挑战题
+
+**练习8.4**：设计一个自适应粒子细化算法，当检测到大变形时自动增加粒子密度。给出细化准则和粒子分裂策略。
+
+*提示*：考虑基于变形梯度的行列式或最大主伸长比的准则。
+
+<details>
+<summary>答案</summary>
+
+细化准则：
+1. 体积变化：$|\det(\mathbf{F}) - 1| > \theta_V$
+2. 最大主伸长：$\lambda_{\max} > \theta_{\lambda}$
+3. 塑性应变：$\varepsilon_p > \theta_p$
+
+分裂策略：
+```python
+def split_particle(p):
+    # 获取主方向
+    U, S, V = svd(F[p])
+    
+    # 沿最大伸长方向分裂
+    direction = U[:, 0]
+    offset = 0.25 * dx * direction
+    
+    # 创建子粒子
+    for i in [-1, 1]:
+        new_p = create_particle()
+        x[new_p] = x[p] + i * offset
+        v[new_p] = v[p]
+        F[new_p] = F[p]
+        m[new_p] = m[p] / 2
+        V[new_p] = V[p] / 2
+    
+    # 删除原粒子
+    delete_particle(p)
+```
+</details>
+
+**练习8.5**：推导并实现各向异性材料的MPM本构模型，考虑纤维方向的影响。
+
+*提示*：使用结构张量$\mathbf{M} = \mathbf{a}_0 \otimes \mathbf{a}_0$表示纤维方向。
+
+<details>
+<summary>答案</summary>
+
+各向异性超弹性模型：
+$$\psi = \psi_{iso}(\mathbf{F}) + \psi_{aniso}(\mathbf{F}, \mathbf{a}_0)$$
+
+其中各向异性部分：
+$$\psi_{aniso} = \frac{k_1}{2k_2}[\exp(k_2(I_4 - 1)^2) - 1]$$
+
+$I_4 = \mathbf{a}_0 \cdot (\mathbf{C} \mathbf{a}_0)$是纤维伸长的平方。
+
+应力：
+$$\mathbf{P} = \mathbf{P}_{iso} + 2k_1(I_4 - 1)\exp(k_2(I_4 - 1)^2)\mathbf{F}\mathbf{a}_0 \otimes \mathbf{a}_0$$
+</details>
+
+**练习8.6**：分析MPM中的能量守恒性质。证明在无外力、无阻尼的情况下，APIC传输保证总角动量守恒。
+
+*提示*：计算系统总角动量$\mathbf{L} = \sum_p m_p \mathbf{x}_p \times \mathbf{v}_p$的时间导数。
+
+<details>
+<summary>答案</summary>
+
+系统总角动量：
+$$\mathbf{L} = \sum_p m_p \mathbf{x}_p \times \mathbf{v}_p$$
+
+P2G后网格角动量：
+$$\mathbf{L}_g = \sum_i m_i \mathbf{x}_i \times \mathbf{v}_i$$
+
+由于APIC传输包含了$\mathbf{C}_p$项：
+$$\mathbf{v}_i = \frac{1}{m_i}\sum_p w_{ip}m_p[\mathbf{v}_p + \mathbf{C}_p(\mathbf{x}_i - \mathbf{x}_p)]$$
+
+可以证明：
+$$\mathbf{L}_g = \mathbf{L}_p$$
+
+G2P后，由于使用相同的权重和$\mathbf{C}_p$更新，角动量继续守恒。
+</details>
+
+**练习8.7**：设计一个MPM-FEM耦合算法，在小变形区域使用FEM，大变形区域使用MPM。
+
+*提示*：考虑过渡区域的处理和动量传递。
+
+<details>
+<summary>答案</summary>
+
+耦合策略：
+1. **区域划分**：基于变形梯度的行列式判断
+2. **过渡区**：同时存在粒子和网格节点
+3. **动量交换**：
+   - FEM→MPM：在FEM边界生成虚拟粒子
+   - MPM→FEM：粒子贡献作为FEM的边界力
+
+算法框架：
+```python
+def coupled_step():
+    # FEM区域
+    K_fem = assemble_stiffness_matrix()
+    f_fem = assemble_force_vector()
+    
+    # MPM贡献到FEM边界
+    f_mpm_to_fem = compute_mpm_boundary_force()
+    f_fem += f_mpm_to_fem
+    
+    # 求解FEM
+    u_fem = solve(K_fem, f_fem)
+    
+    # FEM速度作为MPM边界条件
+    v_fem_boundary = differentiate(u_fem) / dt
+    
+    # MPM步骤（使用FEM边界速度）
+    mpm_step_with_boundary(v_fem_boundary)
+```
+</details>
+
+**练习8.8**：实现一个基于机器学习的本构模型，使用神经网络替代解析的应力-应变关系。
+
+*提示*：网络输入为$\mathbf{F}$或其不变量，输出为$\mathbf{P}$。
+
+<details>
+<summary>答案</summary>
+
+神经网络本构模型：
+```python
+class NeuralConstitutive(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # 输入：F的不变量 (I1, I2, I3)
+        self.net = nn.Sequential(
+            nn.Linear(3, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 9)  # 输出P的9个分量
+        )
+    
+    def forward(self, F):
+        # 计算不变量
+        I1 = torch.trace(F.T @ F)
+        I2 = 0.5 * (I1**2 - torch.trace((F.T @ F)**2))
+        I3 = torch.det(F)**2
+        
+        invariants = torch.stack([I1, I2, I3])
+        P_vec = self.net(invariants)
+        P = P_vec.reshape(3, 3)
+        
+        # 确保物理一致性
+        P = self.enforce_symmetry(P)
+        return P
+```
+
+训练数据来自：
+1. 解析模型生成
+2. 实验测量
+3. 高精度仿真
+</details>
+
+## 常见陷阱与错误 (Gotchas)
+
+1. **粒子穿越网格边界**：粒子离开计算域时需要正确处理，否则会导致段错误
+   - 解决：边界检查和粒子删除机制
+
+2. **变形梯度退化**：$\det(\mathbf{F}) \leq 0$导致应力计算失败
+   - 解决：使用可逆有限元技术或SVD夹持
+
+3. **时间步长过大**：CFL条件$\Delta t < \frac{\Delta x}{c}$，其中$c = \sqrt{E/\rho}$
+   - 解决：自适应时间步长或隐式积分
+
+4. **能量不守恒**：数值耗散导致能量损失
+   - 解决：使用APIC/MLS-MPM，辛积分器
+
+5. **内存爆炸**：粒子数量动态增长导致内存不足
+   - 解决：粒子数量上限，自适应粒子管理
+
+6. **并行竞态**：P2G阶段的原子操作性能瓶颈
+   - 解决：粒子排序，分块并行
+
+7. **边界条件不一致**：网格边界条件与粒子运动冲突
+   - 解决：统一的边界处理策略
+
+8. **数值断裂不稳定**：断裂后应力集中导致数值爆炸
+   - 解决：应力释放，损伤正则化
+
+## 最佳实践检查清单
+
+### 算法选择
+- [ ] 小变形：考虑使用FEM而非MPM
+- [ ] 流固耦合：MLS-MPM统一框架
+- [ ] 断裂模拟：CPIC或相场方法
+- [ ] 大时间步长：隐式MPM
+
+### 参数设置
+- [ ] 粒子密度：每个单元2-4个粒子（2D），4-8个（3D）
+- [ ] 形函数阶数：二次B样条（默认），三次（高精度）
+- [ ] 时间步长：满足CFL条件，考虑材料刚度
+- [ ] 网格分辨率：捕捉最小特征尺寸
+
+### 性能优化
+- [ ] 数据布局：SoA用于批量计算，AoS用于随机访问
+- [ ] 稀疏结构：SPGrid或OpenVDB处理大规模稀疏域
+- [ ] 并行策略：粒子排序减少原子操作冲突
+- [ ] 内存管理：预分配，避免动态分配
+
+### 数值稳定性
+- [ ] 变形梯度监控：检测并处理退化情况
+- [ ] 能量监控：跟踪系统总能量变化
+- [ ] 残差检查：隐式求解器的收敛性
+- [ ] 边界处理：确保边界条件的一致性
+
+### 验证与调试
+- [ ] 单元测试：本构模型、传输算子
+- [ ] 收敛性测试：网格细化研究
+- [ ] 守恒性检查：质量、动量、角动量
+- [ ] 基准测试：与解析解或实验对比
