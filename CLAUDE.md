@@ -5,6 +5,7 @@
 内容范围1:1严格参考 old.md。挑战型练习题可以适度拔高。
 内容在 https://forum.taichi-lang.cn/t/topic/272 的各讲讲义的基础上，进行扩展补充相关材料。
 文件组织是 index.md + chapter1.md + ...
+数学公式都用 latex。代码用 ``` 包起来。
 
 
 ## Audience
